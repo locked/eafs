@@ -6,7 +6,7 @@ import xmlrpclib
 fs_base = "/tmp/eafs/"
 uuid_filename = "chunkserver.uuid"
 
-class GFSChunkserver:
+class EAFSChunkserver:
     def __init__(self, master_host, host, port, uuid):
         self.address = "http://%s:%d" % (host, port)
         self.master = xmlrpclib.ServerProxy(master_host)
@@ -60,7 +60,7 @@ def main():
 	# Create server
 	server = SimpleXMLRPCServer((HOST, PORT), requestHandler=RequestHandler, allow_none=True)
 	server.register_introspection_functions()
-	server.register_instance(GFSChunkserver(master_host, HOST, PORT, uuid))
+	server.register_instance(EAFSChunkserver(master_host, HOST, PORT, uuid))
 	server.serve_forever()
 
 if __name__ == "__main__":

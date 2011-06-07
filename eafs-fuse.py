@@ -9,13 +9,13 @@ from sys import argv, exit
 from fuse import FUSE, FuseOSError, Operations, LoggingMixIn
 
 
-class GFSChunkserver:
+class EAFSChunkserver:
         def __init__(self, uuid, address):
                 self.uuid = uuid
                 self.address = address
                 self.rpc = xmlrpclib.ServerProxy(address)
 
-class GFSClientFuse(LoggingMixIn, Operations):
+class EAFSClientFuse(LoggingMixIn, Operations):
     def __init__(self, master_host):
         self.master = xmlrpclib.ServerProxy(master_host)
         self.chunkservers = {}
@@ -26,7 +26,7 @@ class GFSClientFuse(LoggingMixIn, Operations):
         chunkservers = self.master.get_chunkservers()
         for chunkserver in chunkservers:
             if chunkserver['uuid'] not in self.chunkservers:
-                self.chunkservers[chunkserver['uuid']] = GFSChunkserver( chunkserver['uuid'], chunkserver['address'] )
+                self.chunkservers[chunkserver['uuid']] = EAFSChunkserver( chunkserver['uuid'], chunkserver['address'] )
         
     def write_chunks(self, chunkuuids, data):
         chunks = [ data[x:x+self.master.get_chunksize()] \
@@ -166,7 +166,7 @@ class GFSClientFuse(LoggingMixIn, Operations):
 
 def main():
     master = 'http://localhost:6799'
-    fuse = FUSE(GFSClientFuse(master), argv[1], foreground=True)
+    fuse = FUSE(EAFSClientFuse(master), argv[1], foreground=True)
 
 if __name__ == "__main__":
     main()

@@ -1,12 +1,12 @@
 import math,uuid,sys,os,time,operator,xmlrpclib,random
 
-class GFSChunkserver:
+class EAFSChunkserver:
         def __init__(self, uuid, address):
                 self.uuid = uuid
                 self.address = address
                 self.rpc = xmlrpclib.ServerProxy(address)
 
-class GFSClient:
+class EAFSClient:
     def __init__(self, master_host):
         self.master = xmlrpclib.ServerProxy(master_host)
         self.chunkservers = {}
@@ -28,7 +28,7 @@ class GFSClient:
             #chunkserver = chunkservers[i]
             print chunkserver
             if chunkserver['uuid'] not in self.chunkservers:
-                self.chunkservers[chunkserver['uuid']] = GFSChunkserver( chunkserver['uuid'], chunkserver['address'] )
+                self.chunkservers[chunkserver['uuid']] = EAFSChunkserver( chunkserver['uuid'], chunkserver['address'] )
         
     def write_chunks(self, chunkuuids, data):
         chunks = [ data[x:x+self.master.get_chunksize()] \
@@ -94,7 +94,7 @@ class GFSClient:
 
 def main():
     master = 'http://localhost:6799'
-    client = GFSClient(master)
+    client = EAFSClient(master)
 
     # test write, exist, read
     print "\nWriting..."

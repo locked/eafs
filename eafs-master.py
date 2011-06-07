@@ -17,14 +17,14 @@ create table server (uuid text, address text, PRIMARY KEY(uuid));
 create table chunk_server (chunk_uuid text, server_uuid text, UNIQUE(chunk_uuid,server_uuid));
 """
 
-class GFSChunkserver:
+class EAFSChunkserver:
 	def __init__(self, uuid, address):
 		self.uuid = uuid
 		self.address = address
 		self.rpc = xmlrpclib.ServerProxy(address)
 
 
-class GFSMaster:
+class EAFSMaster:
     def __init__(self):
         self.db = sqlite3.connect(os.path.join(fs_base,db_filename))
         self.max_chunkservers = 10
@@ -74,7 +74,7 @@ class GFSMaster:
         for row in c:
             chunkserver_uuid = row[0]
             chunkserver_address = row[1]
-            self.chunkservers[chunkserver_uuid] = GFSChunkserver(chunkserver_uuid, chunkserver_address)
+            self.chunkservers[chunkserver_uuid] = EAFSChunkserver(chunkserver_uuid, chunkserver_address)
             num_chunkservers += 1
         print " (%d)" % num_chunkservers
     
@@ -82,7 +82,7 @@ class GFSMaster:
         if chunkserver_uuid is None or chunkserver_uuid=="":
             chunkserver_uuid = str(uuid.uuid1())
         if chunkserver_uuid not in self.chunkservers:
-            self.chunkservers[chunkserver_uuid] = GFSChunkserver(chunkserver_uuid, chunkserver_address)
+            self.chunkservers[chunkserver_uuid] = EAFSChunkserver(chunkserver_uuid, chunkserver_address)
             c = self.db.cursor()
             c.execute("""insert into server values (?,?)""", (chunkserver_uuid, chunkserver_address))
             self.db.commit()
@@ -228,7 +228,7 @@ def main():
 	server = SimpleXMLRPCServer((HOST, PORT), requestHandler=RequestHandler, allow_none=True)
 	server.register_introspection_functions()
 	#server.register_function(adder_function, 'add')
-	server.register_instance(GFSMaster())
+	server.register_instance(EAFSMaster())
 	server.serve_forever()
 
 
