@@ -1,4 +1,4 @@
-import math,uuid,os,time,operator,random,xmlrpclib
+import math,uuid,os,time,operator,random,xmlrpclib,argparse
 
 
 # For FUSE
@@ -165,8 +165,12 @@ class EAFSClientFuse(LoggingMixIn, Operations):
 
 
 def main():
-    master = 'http://localhost:6799'
-    fuse = FUSE(EAFSClientFuse(master), argv[1], foreground=True)
+	parser = argparse.ArgumentParser(description='EAFS Master Server')
+	parser.add_argument('--mount', dest='mount_point', default='/mnt', help='Mount point')
+	parser.add_argument('--master', dest='master', default='localhost:6799', help='Master server address')
+	args = parser.parse_args()
+	master = 'http://' + args.master
+	fuse = FUSE(EAFSClientFuse(master), args.mount_point, foreground=True)
 
 if __name__ == "__main__":
     main()

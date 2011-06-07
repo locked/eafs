@@ -1,4 +1,4 @@
-import math,uuid,os,time,operator
+import math,uuid,os,time,operator,argparse
 
 from SimpleXMLRPCServer import SimpleXMLRPCServer
 from SimpleXMLRPCServer import SimpleXMLRPCRequestHandler
@@ -7,7 +7,6 @@ import xmlrpclib
 import sqlite3
 
 
-fs_base = "/tmp"
 db_filename = "eafs.db"
 """
 create table file (name text, mode text, attrs text, ctime text, mtime text, atime text, PRIMARY KEY(name));
@@ -25,8 +24,8 @@ class EAFSChunkserver:
 
 
 class EAFSMaster:
-    def __init__(self):
-        self.db = sqlite3.connect(os.path.join(fs_base,db_filename))
+    def __init__(self, rootfs):
+        self.db = sqlite3.connect(os.path.join(rootfs,db_filename))
         self.max_chunkservers = 10
         self.max_chunksperfile = 100
         self.chunksize = 10
@@ -223,12 +222,17 @@ class RequestHandler(SimpleXMLRPCRequestHandler):
 
 
 def main():
-	HOST, PORT = "localhost", 6799
+	parser = argparse.ArgumentParser(description='EAFS Master Server')
+	parser.add_argument('--host', dest='host', default='localhost', help='Bind to address')
+	parser.add_argument('--port', dest='port', default=6800, type=int, help='Bind to port')
+	parser.add_argument('--rootfs', dest='rootfs', default='/tmp', help='Save data to')
+	args = parser.parse_args()
+	#print args
+	
 	# Create server
-	server = SimpleXMLRPCServer((HOST, PORT), requestHandler=RequestHandler, allow_none=True)
+	server = SimpleXMLRPCServer((args.host, args.port), requestHandler=RequestHandler, allow_none=True)
 	server.register_introspection_functions()
-	#server.register_function(adder_function, 'add')
-	server.register_instance(EAFSMaster())
+	server.register_instance(EAFSMaster(args.rootfs))
 	server.serve_forever()
 
 
