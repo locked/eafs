@@ -86,7 +86,7 @@ def main():
         master_host = "http://" + args.master
 	
 	# Create server
-	server = SimpleXMLRPCServer((args.host, args.port), requestHandler=RequestHandler, allow_none=True)
+	server = SimpleXMLRPCServer((args.host, args.port), requestHandler=RequestHandler, allow_none=True, logRequests=False)
 	server.register_introspection_functions()
 	server.register_instance(EAFSChunkserver(master_host, args.host, args.port, args.rootfs))
 	server.serve_forever()

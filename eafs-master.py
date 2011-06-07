@@ -279,7 +279,7 @@ def main():
 	args = parser.parse_args()
 	
 	# Create server
-	server = SimpleXMLRPCServer((args.host, args.port), requestHandler=RequestHandler, allow_none=True)
+	server = SimpleXMLRPCServer((args.host, args.port), requestHandler=RequestHandler, allow_none=True, logRequests=False)
 	server.register_introspection_functions()
 	server.register_instance(EAFSMaster(args.rootfs, args.init))
 	server.serve_forever()
