@@ -42,8 +42,28 @@ class EAFSChunkserver:
 
 
 class EAFSMaster:
-    def __init__(self, rootfs):
+    def __init__(self, rootfs, init):
+        # Create root fs
+        if not os.access(rootfs, os.W_OK):
+            os.makedirs(rootfs)
+        # Connect to DB
         self.db = sqlite3.connect(os.path.join(rootfs,db_filename))
+        if init==1:
+            # Init DB
+            c = self.db.cursor()
+            c.execute('drop table file')
+            c.execute('drop table chunk')
+            c.execute('drop table file_chunk')
+            c.execute('drop table server')
+            c.execute('drop table chunk_server')
+            self.db.commit()
+            c.execute('create table file (name text, mode text, attrs text, ctime text, mtime text, atime text, PRIMARY KEY(name))')
+            c.execute('create table chunk (uuid text, PRIMARY KEY(uuid))')
+            c.execute('create table file_chunk (file_name text, chunk_uuid text, UNIQUE(file_name,chunk_uuid))')
+            c.execute('create table server (uuid text, address text, PRIMARY KEY(uuid))')
+            c.execute('create table chunk_server (chunk_uuid text, server_uuid text, UNIQUE(chunk_uuid,server_uuid))')
+            self.db.commit()
+            c.close()
         self.max_chunkservers = 10
         self.max_chunksperfile = 100
         self.chunksize = 10
@@ -53,7 +73,12 @@ class EAFSMaster:
         self.load_chunkservers()
         self.load_filetable()
         self.load_chunktable()
-
+    
+    
+    def get_chunksize(self):
+        return self.chunksize
+    
+    
     def load_filetable(self):
         print "LOAD FILETABLE: ", 
         c = self.db.cursor()
@@ -80,9 +105,6 @@ class EAFSMaster:
             num_chunktable += 1
         print " (%d)" % num_chunktable
 
-    def get_chunksize(self):
-        return self.chunksize
-
     def load_chunkservers(self):
         print "LOAD CHUNKSERVERS: ", 
         c = self.db.cursor()
@@ -95,6 +117,7 @@ class EAFSMaster:
             num_chunkservers += 1
         print " (%d)" % num_chunkservers
     
+    
     def connect_chunkserver(self, chunkserver_address, chunkserver_uuid=None):
         if chunkserver_uuid is None or chunkserver_uuid=="":
             chunkserver_uuid = str(uuid.uuid1())
@@ -105,27 +128,27 @@ class EAFSMaster:
             self.db.commit()
             c.close()
         return chunkserver_uuid
-
+    
+    
     def get_chunkservers(self):
         srvs = []
         for i in self.chunkservers:
             srvs.append( {"uuid":self.chunkservers[i].uuid, "address":self.chunkservers[i].address} )
         return srvs
-
-    def alloc(self, filename, num_chunks, attributes): # return ordered chunkuuid list
-        chunkuuids = self.alloc_chunks(num_chunks)
-        self.save_filechunktable(filename, chunkuuids, attributes)
-        return chunkuuids
     
-    def choose_chunkserver(self):
-        for i in self.chunkservers:
-            return self.chunkservers[i]
     
     def choose_chunkserver_uuids(self):
         uuids = []
         for i in self.chunkservers:
             uuids.append( self.chunkservers[i].uuid )
         return uuids
+    
+    
+    def alloc(self, filename, num_chunks, attributes): # return ordered chunkuuid list
+        chunkuuids = self.alloc_chunks(num_chunks)
+        self.save_filechunktable(filename, chunkuuids, attributes)
+        return chunkuuids
+    
     
     def alloc_chunks(self, num_chunks):
         chunkuuids = []
@@ -145,7 +168,7 @@ class EAFSMaster:
         c.close()
         return chunkuuids
 
-    def alloc_append(self, filename, num_append_chunks): # append chunks
+    def alloc_append(self, filename, num_append_chunks):
         chunkuuids = self.get_chunkuuids(filename)
         append_chunkuuids = self.alloc_chunks(num_append_chunks)
         chunkuuids.extend(append_chunkuuids)
@@ -160,7 +183,7 @@ class EAFSMaster:
     def exists(self, filename):
         return True if filename in self.filetable else False
     
-    def delete(self, filename): # rename for later garbage collection
+    def delete(self, filename):
         chunkuuids = self.get_chunkuuids(filename)
         attributes = self.filetable[filename]
         del self.filetable[filename]
@@ -187,6 +210,7 @@ class EAFSMaster:
         self.db.commit()
         c.close()
     
+    
     def list_files(self, path):
         file_list = []
         if path=="/":
@@ -203,7 +227,8 @@ class EAFSMaster:
                     if level-1==i:
                         file_list.append( {"filename":filepaths[i+1], "mode":attributes["mode"]} )
         return file_list
-
+    
+    
     def file_attr(self, path):
         if path=="/":
             return {'mode':"dir",'size':0}
@@ -211,7 +236,8 @@ class EAFSMaster:
             attributes = self.filetable[path]
             return {'mode':attributes["mode"],'size':len(attributes["chunks"])*self.chunksize}
         return None
-
+    
+    
     def dump_metadata(self):
         metadata = "Filetable:\n"
         for filename, attributes in self.filetable.items():
@@ -223,15 +249,7 @@ class EAFSMaster:
                 chunk = self.chunkservers[chunkloc].rpc.read(chunkuuid)
                 metadata += "%s, %s, %s\n" % (chunkloc, chunkuuid, chunk)
         return metadata
-    """
-    def handle(self):
-        # self.request is the TCP socket connected to the client
-        self.data = self.request.recv(1024).strip()
-        print "%s wrote:" % self.client_address[0]
-        print self.data
-        # just send back the same data, but upper-cased
-        self.request.send(self.data.upper())
-    """
+
 
 
 # Restrict to a particular path.
@@ -239,18 +257,19 @@ class RequestHandler(SimpleXMLRPCRequestHandler):
 	rpc_paths = ('/RPC2',)
 
 
+
 def main():
 	parser = argparse.ArgumentParser(description='EAFS Master Server')
 	parser.add_argument('--host', dest='host', default='localhost', help='Bind to address')
 	parser.add_argument('--port', dest='port', default=6800, type=int, help='Bind to port')
 	parser.add_argument('--rootfs', dest='rootfs', default='/tmp', help='Save data to')
+	parser.add_argument('--init', dest='init', default=0, type=int, help='Init DB: reset ALL meta data')
 	args = parser.parse_args()
-	#print args
 	
 	# Create server
 	server = SimpleXMLRPCServer((args.host, args.port), requestHandler=RequestHandler, allow_none=True)
 	server.register_introspection_functions()
-	server.register_instance(EAFSMaster(args.rootfs))
+	server.register_instance(EAFSMaster(args.rootfs, args.reset))
 	server.serve_forever()
 
 
