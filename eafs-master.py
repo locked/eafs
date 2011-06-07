@@ -261,7 +261,7 @@ class RequestHandler(SimpleXMLRPCRequestHandler):
 def main():
 	parser = argparse.ArgumentParser(description='EAFS Master Server')
 	parser.add_argument('--host', dest='host', default='localhost', help='Bind to address')
-	parser.add_argument('--port', dest='port', default=6800, type=int, help='Bind to port')
+	parser.add_argument('--port', dest='port', default=6799, type=int, help='Bind to port')
 	parser.add_argument('--rootfs', dest='rootfs', default='/tmp', help='Save data to')
 	parser.add_argument('--init', dest='init', default=0, type=int, help='Init DB: reset ALL meta data')
 	args = parser.parse_args()
@@ -269,7 +269,7 @@ def main():
 	# Create server
 	server = SimpleXMLRPCServer((args.host, args.port), requestHandler=RequestHandler, allow_none=True)
 	server.register_introspection_functions()
-	server.register_instance(EAFSMaster(args.rootfs, args.reset))
+	server.register_instance(EAFSMaster(args.rootfs, args.init))
 	server.serve_forever()
 
 

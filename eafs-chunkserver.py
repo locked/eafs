@@ -25,7 +25,10 @@ uuid_filename = "chunkserver.uuid"
 
 class EAFSChunkserver:
     def __init__(self, master_host, host, port, rootfs):
-	self.uuid_filename_full = os.path.join( args.rootfs, str(port)+"-"+uuid_filename )
+        # Create root fs
+        if not os.access(rootfs, os.W_OK):
+            os.makedirs(rootfs)
+	self.uuid_filename_full = os.path.join( rootfs, str(port)+"-"+uuid_filename )
 	uuid = ""
 	try:	
 		f = open(self.uuid_filename_full, 'r+')
@@ -83,7 +86,7 @@ def main():
         master_host = "http://" + args.master
 	
 	# Create server
-	server = SimpleXMLRPCServer((HOST, PORT), requestHandler=RequestHandler, allow_none=True)
+	server = SimpleXMLRPCServer((args.host, args.port), requestHandler=RequestHandler, allow_none=True)
 	server.register_introspection_functions()
 	server.register_instance(EAFSChunkserver(master_host, args.host, args.port, args.rootfs))
 	server.serve_forever()
