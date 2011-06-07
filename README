@@ -1,0 +1,14 @@
+EAFS
+====
+
+The FileSystem is composed of 2 main parts:
+
+- Master Servers
+  Keep the meta data
+  Manage chunks allocation
+
+- Chunk Servers
+  Store chunks
+
+The clients first connect to a master server for the meta data then directly to the chunk servers for the real data.
+
