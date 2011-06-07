@@ -165,7 +165,7 @@ class EAFSClientFuse(LoggingMixIn, Operations):
 
 
 def main():
-	parser = argparse.ArgumentParser(description='EAFS Master Server')
+	parser = argparse.ArgumentParser(description='EAFS Fuse Client')
 	parser.add_argument('--mount', dest='mount_point', default='/mnt', help='Mount point')
 	parser.add_argument('--master', dest='master', default='localhost:6799', help='Master server address')
 	args = parser.parse_args()

@@ -1,4 +1,4 @@
-import math,uuid,sys,os,time,operator,xmlrpclib,random
+import math,uuid,sys,os,time,operator,xmlrpclib,random,argparse
 
 class EAFSChunkserver:
         def __init__(self, uuid, address):
@@ -10,11 +10,9 @@ class EAFSClient:
     def __init__(self, master_host):
         self.master = xmlrpclib.ServerProxy(master_host)
         self.chunkservers = {}
-        #print s.pow(2,3)  # Returns 2**3 = 8
-        print self.master.system.listMethods()
 
-    def write(self, filename, data): # filename is full namespace path
-        if self.exists(filename): # if already exists, overwrite
+    def write(self, filename, data):
+        if self.exists(filename):
             self.delete(filename)
         num_chunks = self.num_chunks(len(data))
         attributes = {"mode":"file", "atime":"", "ctime":"", "mtime":"", "attrs":""}
@@ -23,10 +21,9 @@ class EAFSClient:
     
     def update_chunkservers(self):
         chunkservers = self.master.get_chunkservers()
-        print "CHUNKSERVERS[RAW]: ", chunkservers
+        #print "CHUNKSERVERS[RAW]: ", chunkservers
         for chunkserver in chunkservers:
-            #chunkserver = chunkservers[i]
-            print chunkserver
+            #print chunkserver
             if chunkserver['uuid'] not in self.chunkservers:
                 self.chunkservers[chunkserver['uuid']] = EAFSChunkserver( chunkserver['uuid'], chunkserver['address'] )
         
@@ -35,12 +32,12 @@ class EAFSClient:
             for x in range(0, len(data), self.master.get_chunksize()) ]
         #chunkservers = self.master.get_chunkservers()
         self.update_chunkservers()
-        print "CHUNKSERVERS: ", self.chunkservers
+        #print "CHUNKSERVERS: ", self.chunkservers
         for i in range(0, len(chunkuuids)): # write to each chunkserver
             chunkuuid = chunkuuids[i]
             chunklocs = self.master.get_chunklocs(chunkuuid)
             for chunkloc in chunklocs:
-                print "chunkloc: ", chunkloc
+                #print "chunkloc: ", chunkloc
                 self.chunkservers[chunkloc].rpc.write(chunkuuid, chunks[i])
   
     def num_chunks(self, size):
@@ -49,8 +46,7 @@ class EAFSClient:
 
     def write_append(self, filename, data):
         if not self.exists(filename):
-            raise Exception("append error, file does not exist: " \
-                 + filename)
+            raise Exception("append error, file does not exist: " + filename)
         num_append_chunks = self.num_chunks(len(data))
         append_chunkuuids = self.master.alloc_append(filename, \
             num_append_chunks)
@@ -93,23 +89,34 @@ class EAFSClient:
         self.master.delete(filename)
 
 def main():
-    master = 'http://localhost:6799'
-    client = EAFSClient(master)
+	parser = argparse.ArgumentParser(description='EAFS Simple Client')
+	parser.add_argument('--master', dest='master', default='localhost:6799', help='Master server address')
+	args = parser.parse_args()
+	master = 'http://' + args.master
+	
+	client = EAFSClient(master)
+	
+	# test write, exist, read
+	print "\nWriting..."
+	#try:
+	if False:
+	        client.write("/usr/python/readme.txt", """
+		This file tells you all about python that you ever wanted to know.
+		Not every README is as informative as this one, but we aim to please.
+		Never yet has there been so much information in so little space.
+		""")
+	#except:
+	#    print client.master.dump_metadata()
+	print "File exists? ", client.exists("/usr/python/readme.txt")
+	print client.read("/usr/python/readme.txt")
+	# show structure of the filesystem
+	print "\nMetadata Dump..." 
+	print client.master.dump_metadata()
 
-    # test write, exist, read
-    print "\nWriting..."
-    #try:
-    if False:
-        client.write("/usr/python/readme.txt", """
-        This file tells you all about python that you ever wanted to know.
-        Not every README is as informative as this one, but we aim to please.
-        Never yet has there been so much information in so little space.
-        """)
-    #except:
-    #    print client.master.dump_metadata()
-    print "File exists? ", client.exists("/usr/python/readme.txt")
-    print client.read("/usr/python/readme.txt")
+if __name__ == "__main__":
+    main()
 
+"""
     # test append, read after append
     #print "\nAppending..."
     #client.write_append("/usr/python/readme.txt", \
@@ -131,11 +138,4 @@ def main():
     #    client.write_append("/usr/python/readme.txt", "foo")
     #except Exception as e:
     #    print "This exception should be thrown:", e
-
-    # show structure of the filesystem
-    print "\nMetadata Dump..." 
-    print client.master.dump_metadata()
-
-if __name__ == "__main__":
-    main()
-
+"""
