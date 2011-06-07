@@ -12,3 +12,9 @@ The FileSystem is composed of 2 main parts:
 
 The clients first connect to a master server for the meta data then directly to the chunk servers for the real data.
 
+
+Requirements
+------------
+
+ - fuse.py (http://code.google.com/p/fusepy/ or http://php.lunasys.fr/fuse.py)
+
