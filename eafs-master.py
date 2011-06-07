@@ -64,9 +64,9 @@ class EAFSMaster:
             c.execute('create table chunk_server (chunk_uuid text, server_uuid text, UNIQUE(chunk_uuid,server_uuid))')
             self.db.commit()
             c.close()
-        self.max_chunkservers = 10
-        self.max_chunksperfile = 100
-        self.chunksize = 10
+        self.max_chunkservers = 100
+        self.max_chunksperfile = 10000000
+        self.chunksize = 4096
         self.filetable = {} # file to chunk mapping
         self.chunktable = {} # chunkuuid to chunkloc mapping
         self.chunkservers = {} # loc id to chunkserver mapping
@@ -184,6 +184,21 @@ class EAFSMaster:
         return True if filename in self.filetable else False
     
     def delete(self, filename):
+        #timestamp = repr(time.time())
+        #deleted_filename = "/hidden/deleted/" + timestamp + filename 
+        #self.rename( filename, deleted_filename )
+        c = self.db.cursor()
+        chunkuuids = self.get_chunkuuids(filename)
+        for chunkuuid in chunkuuids:
+            c.execute("""delete from chunk where uuid=?""", (chunkuuid, ))
+            c.execute("""delete from chunk_server where chunk_uuid=?""", (chunkuuid, ))
+        del self.filetable[filename]
+        c.execute("""delete from file_chunk where file_name=?""", (filename, ))
+        c.execute("""delete from file where name=?""", (filename, ))
+        self.db.commit()
+        c.close()
+
+    def rename(self, filename, new_filename):
         chunkuuids = self.get_chunkuuids(filename)
         attributes = self.filetable[filename]
         del self.filetable[filename]
@@ -192,11 +207,8 @@ class EAFSMaster:
         c.execute("""delete from file where name=?""", (filename, ))
         self.db.commit()
         c.close()
-        timestamp = repr(time.time())
-        deleted_filename = "/hidden/deleted/" + timestamp + filename 
-        self.save_filechunktable(deleted_filename,chunkuuids,attributes)
-        print "deleted file: " + filename + " renamed to " + \
-             deleted_filename + " ready for gc"
+        self.save_filechunktable(new_filename,chunkuuids,attributes)
+        print "file: " + filename + " renamed to " + new_filename
     
     
     def save_filechunktable(self, filename, chunkuuids, attributes):
@@ -243,11 +255,11 @@ class EAFSMaster:
         for filename, attributes in self.filetable.items():
             metadata += "%s with %d chunks\n" % (filename, len(attributes["chunks"]))
         metadata += "Chunkservers: %d\n" % (len(self.chunkservers))
-        metadata += "Chunkserver Data:\n"
-        for chunkuuid, chunklocs in sorted(self.chunktable.iteritems(), key=operator.itemgetter(1)):
-            for chunkloc in chunklocs:
-                chunk = self.chunkservers[chunkloc].rpc.read(chunkuuid)
-                metadata += "%s, %s, %s\n" % (chunkloc, chunkuuid, chunk)
+        #metadata += "Chunkserver Data:\n"
+        #for chunkuuid, chunklocs in sorted(self.chunktable.iteritems(), key=operator.itemgetter(1)):
+        #    for chunkloc in chunklocs:
+        #        chunk = self.chunkservers[chunkloc].rpc.read(chunkuuid)
+        #        metadata += "%s, %s\n" % (chunkloc, chunkuuid)
         return metadata
 
 

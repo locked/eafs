@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
-import math,uuid,os,time,operator,sys,argparse
+import math,uuid,os,time,operator,sys,argparse,zlib
 from SimpleXMLRPCServer import SimpleXMLRPCServer
 from SimpleXMLRPCServer import SimpleXMLRPCRequestHandler
 import xmlrpclib
@@ -57,7 +57,7 @@ class EAFSChunkserver:
     def write(self, chunkuuid, chunk):
         local_filename = self.chunk_filename(chunkuuid)
         with open(local_filename, "w") as f:
-            f.write(chunk)
+            f.write(zlib.decompress(chunk.data))
         self.chunktable[chunkuuid] = local_filename
 
     def read(self, chunkuuid):
@@ -65,7 +65,7 @@ class EAFSChunkserver:
         local_filename = self.chunk_filename(chunkuuid)
         with open(local_filename, "r") as f:
             data = f.read()
-        return data
+        return xmlrpclib.Binary(data)
 
     def chunk_filename(self, chunkuuid):
         return os.path.join( self.local_filesystem_root, str(chunkuuid) ) + '.gfs'

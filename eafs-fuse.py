@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
-import math,uuid,os,time,operator,random,xmlrpclib,argparse
+import math,uuid,os,time,operator,random,xmlrpclib,argparse,zlib
 
 
 # For FUSE
@@ -33,9 +33,11 @@ class EAFSChunkserver:
                 self.address = address
                 self.rpc = xmlrpclib.ServerProxy(address)
 
-class EAFSClientFuse(LoggingMixIn, Operations):
+#LoggingMixIn
+class EAFSClientFuse(Operations):
     def __init__(self, master_host):
         self.master = xmlrpclib.ServerProxy(master_host)
+        self.chunk_size = self.master.get_chunksize()
         self.chunkservers = {}
         self.fd = 0
         print self.master.dump_metadata()
@@ -44,32 +46,39 @@ class EAFSClientFuse(LoggingMixIn, Operations):
         chunkservers = self.master.get_chunkservers()
         for chunkserver in chunkservers:
             if chunkserver['uuid'] not in self.chunkservers:
+                print "ADD CHUNKSERVER: ", chunkserver['uuid'], chunkserver['address']
                 self.chunkservers[chunkserver['uuid']] = EAFSChunkserver( chunkserver['uuid'], chunkserver['address'] )
         
     def write_chunks(self, chunkuuids, data):
-        chunks = [ data[x:x+self.master.get_chunksize()] \
-            for x in range(0, len(data), self.master.get_chunksize()) ]
+        chunks = [ data[x:x+self.chunk_size] \
+            for x in range(0, len(data), self.chunk_size) ]
         self.update_chunkservers()
-        print "CHUNKSERVERS: ", self.chunkservers
+        print "CHUNKSERVERS: ", len(self.chunkservers)
         for i in range(0, len(chunkuuids)): # write to each chunkserver
             chunkuuid = chunkuuids[i]
             chunklocs = self.master.get_chunklocs(chunkuuid)
+            chunkserver_writes = 0
             for chunkloc in chunklocs:
-                print "chunkloc: ", chunkloc
-                self.chunkservers[chunkloc].rpc.write(chunkuuid, chunks[i])
+                #print "chunkloc: ", chunkloc
+                try:
+                    self.chunkservers[chunkloc].rpc.write(chunkuuid, xmlrpclib.Binary(zlib.compress(chunks[i])))
+                    chunkserver_writes += 1
+                except:
+                    print "Chunkserver %s failed" % chunkloc
+            if chunkserver_writes==0:
+                raise Exception("write_chunks error, not enough chunkserver available")
   
     def num_chunks(self, size):
-        return (size // self.master.get_chunksize()) \
-            + (1 if size % self.master.get_chunksize() > 0 else 0)
+        return (size // self.chunk_size) \
+            + (1 if size % self.chunk_size > 0 else 0)
 
     def write_append(self, filename, data):
         if not self.exists(filename):
-            raise Exception("append error, file does not exist: " \
-                 + filename)
+            raise Exception("append error, file does not exist: " + filename)
         num_append_chunks = self.num_chunks(len(data))
-        append_chunkuuids = self.master.alloc_append(filename, \
-            num_append_chunks)
+        append_chunkuuids = self.master.alloc_append(filename, num_append_chunks)
         self.write_chunks(append_chunkuuids, data) 
+        return len(data)
 
     def exists(self, filename):
         return self.master.exists(filename)
@@ -77,13 +86,17 @@ class EAFSClientFuse(LoggingMixIn, Operations):
     def delete(self, filename):
         self.master.delete(filename)
 
+    def rename(self, old, new):
+        self.master.rename(old, new)
+
     def write(self, path, data, offset, fh):
-        filename = path
-        if self.exists(filename): # if already exists, overwrite
-            self.delete(filename)
+        if offset>0:
+            return self.write_append(path, data)
+        if self.exists(path):
+            self.delete(path)
         num_chunks = self.num_chunks(len(data))
         attributes = {"mode":"file", "atime":"", "ctime":"", "mtime":"", "attrs":""}
-        chunkuuids = self.master.alloc(filename, num_chunks, attributes)
+        chunkuuids = self.master.alloc(path, num_chunks, attributes)
         self.write_chunks(chunkuuids, data)
         return len(data)
 
@@ -133,13 +146,15 @@ class EAFSClientFuse(LoggingMixIn, Operations):
                 while chunkidrnd not in done_chunkserver and len(done_chunkserver)>0:
                     chunkidrnd = random.randint(0, len(chunklocs)-1)
                 chunkloc = chunklocs[chunkidrnd]
-                print "Select chunkloc %s from %d choices" % (chunkloc, len(chunklocs))
-                try:
-                    chunk = self.chunkservers[chunkloc].rpc.read(chunkuuid)
+                #print "Select chunkloc %s from %d choices" % (chunkloc, len(chunklocs))
+                #try:
+                if True:
+                    chunk_raw = self.chunkservers[chunkloc].rpc.read(chunkuuid)
+                    chunk = chunk_raw.data
                     chunk_read = True
-                    done_chunkserver.append(chunkidrnd)
-                except:
-                    print "Chunkserver %d failed" % chunkidrnd
+                #except:
+                #    print "Chunkserver %d failed %d remaining" % (chunkidrnd, len(chunklocs)-len(done_chunkserver))
+                done_chunkserver.append(chunkidrnd)
             if not chunk_read:
                 raise Exception("read error, chunkserver unavailable: " + filename)
             chunks.append(chunk)
@@ -161,6 +176,7 @@ class EAFSClientFuse(LoggingMixIn, Operations):
         return ['.', '..'] + [x[0:] for x in files if x != '/']
 
     def statfs(self, path):
+        #return dict(f_bsize=2048, f_blocks=16384, f_bavail=16384)
         return dict(f_bsize=512, f_blocks=4096, f_bavail=2048)
 
     def open(self, path, flags):
