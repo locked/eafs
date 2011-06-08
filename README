@@ -6,11 +6,18 @@ The FileSystem is composed of 2 main parts:
 - Master Servers
   Keep the meta data
   Manage chunks allocation
+  Sample start command:
+    python eafs-master.py --host 192.168.0.10 --rootfs /tmp --init 1
 
 - Chunk Servers
   Store chunks
+  Sample start command:
+    python eafs-chunkserver.py --host 192.168.0.10 --master 192.168.0.10:6799
 
-The clients first connect to a master server for the meta data then directly to the chunk servers for the real data.
+- Clients
+  Clients first connect to a master server for the meta data then directly to the chunk servers for the real data.
+  Sample start command for the FUSE client:
+    python eafs-fuse.py --master 192.168.0.10:6799 --mount /mnt
 
 
 Requirements
