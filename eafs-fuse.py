@@ -30,85 +30,82 @@ from eafsclientlib import EAFSClientLib
 
 
 #LoggingMixIn
-class EAFSClientFuse(EAFSClientLib, Operations):
-    #def __init__(self, master_host):
-    #    self.init( master_host )
-    
-    def exists(self, filename):
-        return self.master.exists(filename)
-    
-    def delete(self, filename):
-        self.master.delete(filename)
+class EAFSClientFuse(EAFSClientLib, LoggingMixIn, Operations):
+	def exists(self, filename):
+		return self.master.exists(filename)
+	
+	def delete(self, filename):
+		self.master.delete(filename)
+	
+	def rename(self, old, new):
+		self.master.rename(old, new)
+	
+	def write(self, path, data, offset, fh):
+		if offset>0:
+			return self.eafs_write_append(path, data)
+		attributes = {"type":"f", "atime":"", "ctime":"", "mtime":"", "attrs":""}
+		return self.eafs_write(path, data, attributes)
+	
+	def create(self, path, mode):
+		attributes = {"type":"f", "atime":"", "ctime":"", "mtime":"", "attrs":""}
+		chunkuuids = self.master.alloc(path, 0, attributes)
+		#self.files[path] = dict(st_mode=(S_IFREG | mode), st_nlink=1,
+		#    st_size=0, st_ctime=time(), st_mtime=time(), st_atime=time())
+		self.fd += 1
+		return self.fd
+	
+	def truncate(self, path, length, fh=None):
+		s = ""
+		for i in range(0,length):
+			s += "0"
+		self.write(path, s, length, fh)
+	
+	def mkdir(self, path, mode):
+		filename = path
+		attributes = {"type":"d", "atime":"", "ctime":"", "mtime":"", "attrs":""}
+		chunkuuids = self.master.alloc(filename, 0, attributes)
+	
+	def rmdir(self, path):
+		self.delete(path)
+	
+	def unlink(self, path):
+		self.master.delete(path)
+	
+	def readdir(self, path, fh):
+		fl = self.master.list_files(path)
+		files = {}
+		now = time.time()
+		for f in fl:
+			if f['type']=="d":
+				files[f['name']] = dict(st_mode=(S_IFDIR | 0755), st_size=f['size'], st_ctime=now, st_mtime=f['mtime'], st_atime=now, st_nlink=0)
+			else:
+				files[f['name']] = dict(st_mode=(S_IFREG | 0755), st_size=f['size'], st_ctime=now, st_mtime=f['mtime'], st_atime=now, st_nlink=0)
+		return ['.', '..'] + [x[0:] for x in files if x != '/']
 
-    def rename(self, old, new):
-        self.master.rename(old, new)
-
-    def write(self, path, data, offset, fh):
-        if offset>0:
-            return self.eafs_write_append(path, data)
-        attributes = {"mode":"file", "atime":"", "ctime":"", "mtime":"", "attrs":""}
-        return self.eafs_write(path, data, attributes)
-
-    def create(self, path, mode):
-        attributes = {"mode":"file", "atime":"", "ctime":"", "mtime":"", "attrs":""}
-        chunkuuids = self.master.alloc(path, 0, attributes)
-        #self.files[path] = dict(st_mode=(S_IFREG | mode), st_nlink=1,
-        #    st_size=0, st_ctime=time(), st_mtime=time(), st_atime=time())
-        self.fd += 1
-        return self.fd
-
-    def truncate(self, path, length, fh=None):
-        s = ""
-        for i in range(0,length):
-            s += "0"
-        self.write(path, s, length, fh)
-
-    def mkdir(self, path, mode):
-        filename = path
-        attributes = {"mode":"dir", "atime":"", "ctime":"", "mtime":"", "attrs":""}
-        chunkuuids = self.master.alloc(filename, 0, attributes)
-    
-    def rmdir(self, path):
-        self.delete(path)
-
-    def unlink(self, path):
-        self.master.delete(path)
-
-    def readdir(self, path, fh):
-        fl = self.master.list_files(path)
-        files = {}
-        now = time.time()
-        for f in fl:
-            if f["mode"]=="dir":
-                files[f["filename"]] = dict(st_mode=(S_IFDIR | 0755), st_size=50, st_ctime=now, st_mtime=now, st_atime=now, st_nlink=2)
-            else:
-                files[f["filename"]] = dict(st_mode=(S_IFREG | 0755), st_size=50, st_ctime=now, st_mtime=now, st_atime=now, st_nlink=2)
-        return ['.', '..'] + [x[0:] for x in files if x != '/']
-
-    def read(self, path, size, offset, fh):
-        return self.eafs_read( path, size, offset )
-
-    def statfs(self, path):
-        return dict(f_bsize=512, f_blocks=32768, f_bavail=16384)
-        #return dict(f_bsize=512, f_blocks=4096, f_bavail=2048)
-
-    def open(self, path, flags):
-        self.fd += 1
-        return self.fd
-
-    def getattr(self, path, fh=None):
-        #print "CHECK PATH %s" % path
-        f = self.master.file_attr(path)
-        if f is None:
-            raise FuseOSError(ENOENT)
-        now = time.time()
-        if f['mode']=="dir":
-            st = dict(st_mode=(S_IFDIR | 0755), st_ctime=now, st_mtime=now, st_atime=now, st_nlink=2)
-        elif f['mode']=="file":
-            st = dict(st_mode=(S_IFREG | 0755), st_size=f['size'], st_ctime=now, st_mtime=now, st_atime=now, st_nlink=2)
-        else:
-            raise FuseOSError(ENOENT)
-        return st
+	def read(self, path, size, offset, fh):
+		return self.eafs_read( path, size, offset )
+	
+	def statfs(self, path):
+		return dict(f_bsize=512, f_blocks=32768, f_bavail=16384)
+		#return dict(f_bsize=512, f_blocks=4096, f_bavail=2048)
+	
+	def open(self, path, flags):
+		self.fd += 1
+		return self.fd
+	
+	def getattr(self, path, fh=None):
+		#print "CHECK PATH %s" % path
+		f = self.master.file_attr(path)
+		if f is None:
+			raise FuseOSError(ENOENT)
+		now = time.time()
+		if f['type']=="d":
+			st = dict(st_mode=(S_IFDIR | 0755), st_ctime=now, st_mtime=now, st_atime=now, st_nlink=2)
+		elif f['type']=="f":
+			st = dict(st_mode=(S_IFREG | 0755), st_size=f['size'], st_ctime=now, st_mtime=now, st_atime=now, st_nlink=2)
+		else:
+			raise FuseOSError(ENOENT)
+		return st
 
 
 def main():
@@ -120,5 +117,5 @@ def main():
 	fuse = FUSE(EAFSClientFuse(master), args.mount_point, foreground=True)
 
 if __name__ == "__main__":
-    main()
+	main()
 

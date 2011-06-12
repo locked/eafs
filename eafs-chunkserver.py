@@ -24,55 +24,55 @@ import xmlrpclib
 uuid_filename = "chunkserver.uuid"
 
 class EAFSChunkserver:
-    def __init__(self, master_host, host, port, rootfs):
-        # Create root fs
-        if not os.access(rootfs, os.W_OK):
-            os.makedirs(rootfs)
-	self.uuid_filename_full = os.path.join( rootfs, str(port)+"-"+uuid_filename )
-	uuid = ""
-	try:	
-		f = open(self.uuid_filename_full, 'r+')
-		lines = f.readlines()
-		if lines is not None and len(lines)>0:
-			uuid = str(lines[0])
-	except:
-		print "No uuid file. Will create it."
+	def __init__(self, master_host, host, port, rootfs):
+		# Create root fs
+		if not os.access(rootfs, os.W_OK):
+			os.makedirs(rootfs)
+		self.uuid_filename_full = os.path.join( rootfs, str(port)+"-"+uuid_filename )
+		uuid = ""
+		try:	
+			f = open(self.uuid_filename_full, 'r+')
+			lines = f.readlines()
+			if lines is not None and len(lines)>0:
+				uuid = str(lines[0])
+		except:
+			print "No uuid file. Will create it."
 	
-        self.address = "http://%s:%d" % (host, port)
-        self.master = xmlrpclib.ServerProxy(master_host)
-        self.uuid = self.master.connect_chunkserver( self.address, uuid )
-        if self.uuid is None:
-            return False
-        if uuid is None or uuid=="":
-            print "Create UUID file %s" % self.uuid_filename_full,
-            f = open(self.uuid_filename_full, 'w+')
-            f.write(self.uuid)
-            f.close()
-        self.chunktable = {}
-        self.local_filesystem_root = os.path.join( rootfs, "chunks", str(self.uuid) ) #repr
-        #print "FS ROOT: %s" % self.local_filesystem_root
-        if not os.access(self.local_filesystem_root, os.W_OK):
-            os.makedirs(self.local_filesystem_root)
-
-    def write(self, chunkuuid, chunk):
-        local_filename = self.chunk_filename(chunkuuid)
-        with open(local_filename, "w") as f:
-            f.write(zlib.decompress(chunk.data))
-        self.chunktable[chunkuuid] = local_filename
-
-    def read(self, chunkuuid):
-        data = None
-        local_filename = self.chunk_filename(chunkuuid)
-        with open(local_filename, "r") as f:
-            data = f.read()
-        return xmlrpclib.Binary(data)
-
-    def chunk_filename(self, chunkuuid):
-        return os.path.join( self.local_filesystem_root, str(chunkuuid) ) + '.gfs'
+		self.address = "http://%s:%d" % (host, port)
+		self.master = xmlrpclib.ServerProxy(master_host)
+		self.uuid = self.master.connect_chunkserver( self.address, uuid )
+		if self.uuid is None:
+			return False
+		if uuid is None or uuid=="":
+			print "Create UUID file %s" % self.uuid_filename_full,
+			f = open(self.uuid_filename_full, 'w+')
+			f.write(self.uuid)
+			f.close()
+		self.chunktable = {}
+		self.local_filesystem_root = os.path.join( rootfs, "chunks", str(self.uuid) ) #repr
+		#print "FS ROOT: %s" % self.local_filesystem_root
+		if not os.access(self.local_filesystem_root, os.W_OK):
+			os.makedirs(self.local_filesystem_root)
+	
+	def write(self, chunkuuid, chunk):
+		local_filename = self.chunk_filename(chunkuuid)
+		with open(local_filename, "w") as f:
+			f.write(zlib.decompress(chunk.data))
+		self.chunktable[chunkuuid] = local_filename
+	
+	def read(self, chunkuuid):
+		data = None
+		local_filename = self.chunk_filename(chunkuuid)
+		with open(local_filename, "r") as f:
+			data = f.read()
+		return xmlrpclib.Binary(data)
+	
+	def chunk_filename(self, chunkuuid):
+		return os.path.join( self.local_filesystem_root, str(chunkuuid) ) + '.gfs'
 
 
 class RequestHandler(SimpleXMLRPCRequestHandler):
-        rpc_paths = ('/RPC2',)
+	rpc_paths = ('/RPC2',)
 
 
 def main():
@@ -83,7 +83,7 @@ def main():
 	parser.add_argument('--rootfs', dest='rootfs', default='/tmp/eafs/', help='Save chunk to')
 	args = parser.parse_args()
 	
-        master_host = "http://" + args.master
+	master_host = "http://" + args.master
 	
 	# Create server
 	server = SimpleXMLRPCServer((args.host, args.port), requestHandler=RequestHandler, allow_none=True, logRequests=False)
@@ -92,5 +92,5 @@ def main():
 	server.serve_forever()
 
 if __name__ == "__main__":
-    main()
+	main()
 
