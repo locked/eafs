@@ -1,16 +1,17 @@
 EAFS
 ====
 
-The FileSystem is composed of 2 main parts:
+EAFS is a distributed filesystem in python, aiming simplicity and very extendable. It is composed of 3 main parts:
 
 - Master Servers
-  Keep the meta data
+  Keep the meta data in SQL (currently sqlite for simplicity but support for mysql is planned)
   Manage chunks allocation
-  Sample start command:
+  Sample start command
     python eafs-master.py --host 192.168.0.10 --rootfs /tmp --init 1
+    note: "--init 1" will erase any previous start and create a new database
 
 - Chunk Servers
-  Store chunks
+  Store chunks. You can connect as many as you want, the master will automatically store chunks on them.
   Sample start command:
     python eafs-chunkserver.py --host 192.168.0.10 --master 192.168.0.10:6799
 
