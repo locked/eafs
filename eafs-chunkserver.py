@@ -23,6 +23,14 @@ import xmlrpclib
 
 uuid_filename = "chunkserver.uuid"
 
+
+class EAFSChunkServerRpc:
+	def __init__(self, uuid, address):
+		self.uuid = uuid
+		self.address = address
+		self.rpc = xmlrpclib.ServerProxy(address)
+
+
 class EAFSChunkserver:
 	def __init__(self, master_host, host, port, rootfs):
 		# Create root fs
@@ -30,7 +38,7 @@ class EAFSChunkserver:
 			os.makedirs(rootfs)
 		self.uuid_filename_full = os.path.join( rootfs, str(port)+"-"+uuid_filename )
 		uuid = ""
-		try:	
+		try:
 			f = open(self.uuid_filename_full, 'r+')
 			lines = f.readlines()
 			if lines is not None and len(lines)>0:
@@ -65,7 +73,15 @@ class EAFSChunkserver:
 		local_filename = self.chunk_filename(chunkuuid)
 		with open(local_filename, "r") as f:
 			data = f.read()
-		return xmlrpclib.Binary(data)
+		return xmlrpclib.Binary(zlib.compress(data))
+	
+	def replicate(self, chunkuuid, chunkserver_uuid, chunkserver_address):
+		chunkserver = EAFSChunkServerRpc( chunkserver_uuid, chunkserver_address )
+		#print chunkuuid
+		chunk = chunkserver.rpc.read( chunkuuid )
+		#print chunk
+		self.write( chunkuuid, chunk )
+		self.master.chunkserver_has_chunk( self.uuid, chunkuuid )
 	
 	def chunk_filename(self, chunkuuid):
 		return os.path.join( self.local_filesystem_root, str(chunkuuid) ) + '.gfs'

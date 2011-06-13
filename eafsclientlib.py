@@ -19,7 +19,7 @@
 import math,uuid,os,time,operator,random,xmlrpclib,argparse,zlib
 
 
-class EAFSChunkserver:
+class EAFSChunkServerRpc:
 	def __init__(self, uuid, address):
 		self.uuid = uuid
 		self.address = address
@@ -44,7 +44,7 @@ class EAFSClientLib():
 			for chunkserver in chunkservers:
 				if chunkserver['uuid'] not in self.chunkservers:
 					print "ADD CHUNKSERVER: ", chunkserver['uuid'], chunkserver['address']
-					self.chunkservers[chunkserver['uuid']] = EAFSChunkserver( chunkserver['uuid'], chunkserver['address'] )
+					self.chunkservers[chunkserver['uuid']] = EAFSChunkServerRpc( chunkserver['uuid'], chunkserver['address'] )
 	
 	def write_chunks(self, chunkuuids, data):
 		chunks = [ data[x:x+self.chunk_size] \
@@ -123,7 +123,7 @@ class EAFSClientLib():
 				#if self.debug>2: print "Select chunkloc %s from %d choices" % (chunkloc, len(chunklocs))
 				try:
 					chunk_raw = self.chunkservers[chunkloc].rpc.read(chunkuuid)
-					chunk = chunk_raw.data
+					chunk = zlib.decompress(chunk_raw.data)
 					chunk_read = True
 				except:
 					print "Chunkserver %d failed %d remaining" % (chunkidrnd, len(chunklocs)-len(done_chunkserver))
