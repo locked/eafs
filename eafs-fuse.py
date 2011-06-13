@@ -43,7 +43,7 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 	def write(self, path, data, offset, fh):
 		if offset>0:
 			return self.eafs_write_append(path, data)
-		attributes = {"type":"f", "atime":"", "ctime":"", "mtime":"", "attrs":""}
+		attributes = {"type":"f", "atime":time.time(), "ctime":time.time(), "mtime":time.time(), "size":0, "links":1, "attrs":""}
 		return self.eafs_write(path, data, attributes)
 	
 	def create(self, path, mode):
@@ -110,9 +110,10 @@ def main():
 	parser = argparse.ArgumentParser(description='EAFS Fuse Client')
 	parser.add_argument('--mount', dest='mount_point', default='/mnt', help='Mount point')
 	parser.add_argument('--master', dest='master', default='localhost:6799', help='Master server address')
+	parser.add_argument('--debug', dest='debug', default=0, help='Activate debug messages')
 	args = parser.parse_args()
 	master = 'http://' + args.master
-	fuse = FUSE(EAFSClientFuse(master), args.mount_point, foreground=True)
+	fuse = FUSE(EAFSClientFuse(master, args.debug), args.mount_point, foreground=True)
 
 if __name__ == "__main__":
 	main()

@@ -78,6 +78,7 @@ class EAFSChunkserver:
 
 class EAFSMaster:
 	def __init__(self, rootfs, init):
+		self.debug = 0
 		# Create root fs
 		if not os.access(rootfs, os.W_OK):
 			os.makedirs(rootfs)
@@ -134,10 +135,9 @@ class EAFSMaster:
 		if num_inodetable==0:
 			# Create root directory
 			root_inode = self.create_inode( "/" )
-			self.root_inode_id = root_inode.id
 		else:
 			root_inode = self.get_inode_from_filename( "/" )
-			self.root_inode_id = root_inode.id
+		self.root_inode_id = root_inode.id
 		c.execute('select * from inode_chunk')
 		for row in c:
 			self.inodetable[row[0]].chunks.append( row[1] )
@@ -150,10 +150,9 @@ class EAFSMaster:
 		c.execute('select * from chunk_server')
 		num_chunktable = 0
 		for row in c:
-			if row[0] in self.chunktable:
-				self.chunktable[row[0]].append( row[1] )
-			else:
-				self.chunktable[row[0]] = [row[1]]
+			if row[0] not in self.chunktable:
+				self.chunktable[row[0]] = []
+			self.chunktable[row[0]].append( row[1] )
 			num_chunktable += 1
 		print " (%d)" % num_chunktable
 	
@@ -207,25 +206,35 @@ class EAFSMaster:
 	
 	def alloc_chunks(self, num_chunks):
 		chunkuuids = []
+		start = time.time()
 		c = self.db.cursor()
+		c.execute("""PRAGMA synchronous = OFF""")
 		for i in range(0, num_chunks):
 			# Generate UUID
 			chunk_uuid = str(uuid.uuid1())
+			chunkuuids.append(chunk_uuid)
+			start_choose = time.time()
 			chunkserver_uuids = self.choose_chunkserver_uuids()
+			if self.debug>0: print "[alloc_chunks] choose_chunkserver_uuids: ", (time.time()-start_choose)
 			self.chunktable[chunk_uuid] = chunkserver_uuids
+			start_sql = time.time()
 			c.execute("""insert into chunk values (?)""", (chunk_uuid, ))
 			for chunkserver_uuid in chunkserver_uuids:
 				c.execute("""insert into chunk_server values (?, ?)""", (chunk_uuid, chunkserver_uuid))
-			chunkuuids.append(chunk_uuid)
+			if self.debug>2: print "[alloc_chunks] sql: ", (time.time()-start_sql)
+		start_sql = time.time()
 		self.db.commit()
+		if self.debug>0: print "[alloc_chunks] sql commit: ", (time.time()-start_sql)
 		c.close()
+		if self.debug>0: print "[alloc_chunks] total: ", len(chunkuuids), (time.time()-start)
 		return chunkuuids
 	
 	
 	def alloc_append(self, filename, num_append_chunks):
 		chunkuuids = self.get_chunkuuids(filename)
 		append_chunkuuids = self.alloc_chunks(num_append_chunks)
-		chunkuuids.extend(append_chunkuuids)
+		#chunkuuids.extend(append_chunkuuids)
+		self.save_inodechunktable(filename, append_chunkuuids)
 		return append_chunkuuids
 	
 	
@@ -272,7 +281,27 @@ class EAFSMaster:
 				return False
 		#print "get_inode_from_filename return: ", inode
 		return inode
-		
+	
+	
+	def get_chunkuuids_offset(self, filename, size, offset):
+		chunkuuids = self.get_chunkuuids(filename)
+		ratio = math.floor( offset/self.chunksize )
+		num = math.ceil( size/self.chunksize )
+		new_offset = int(offset - (ratio*self.chunksize))
+		start = int(ratio)
+		end = int(ratio+num)
+		if end>=len(chunkuuids):
+			new_chunkuuids = chunkuuids[start:]
+		else:
+			new_chunkuuids = chunkuuids[start:end]
+		#print chunkuuids
+		#print "filename:%s size:%d offset:%d ratio:%d num:%d new_offset:%d end:%d" % (filename,size,offset,ratio,num,new_offset,end)
+		#print new_chunkuuids
+		chunkserver_uuids = {}
+		for chunkuuid in new_chunkuuids:
+			chunkserver_uuids[chunkuuid] = self.get_chunklocs(chunkuuid)
+		return (new_chunkuuids, new_offset, chunkserver_uuids)
+	
 	
 	def get_chunkuuids(self, filename):
 		inode = self.get_inode_from_filename( filename )
@@ -348,16 +377,21 @@ class EAFSMaster:
 		return inode
 	
 	
-	def save_inodechunktable(self, filename, chunkuuids, save_inode):
+	def save_inodechunktable(self, filename, chunkuuids, save_inode=None):
+		#print "save_inodechunktable: %s" % (filename, )
 		inode = self.get_inode_from_filename( filename )
 		c = self.db.cursor()
+		c.execute("""PRAGMA synchronous = OFF""")
 		if not inode:
+			if save_inode is None:
+				return False
 			inode = self.create_inode( filename, save_inode )
 			if not inode:
 				return False
+		self.inodetable[inode.id].chunks.extend( chunkuuids )
 		#print "Save %d chunks for node %d" % (len(self.inodetable[inode.id].chunks), inode.id)
-		self.inodetable[inode.id].chunks = chunkuuids
 		for chunkuuid in chunkuuids:
+			if self.debug>3: print "insert into inode_chunk values (%s, %s)" % (inode.id, chunkuuid)
 			c.execute("""insert into inode_chunk values (?,?)""", (inode.id, chunkuuid))
 		self.db.commit()
 		c.close()

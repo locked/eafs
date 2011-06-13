@@ -27,33 +27,42 @@ class EAFSChunkserver:
 
 
 class EAFSClientLib():
-	def __init__(self, master_host):
+	def __init__(self, master_host, debug=0):
 		#print "host: ", master_host
+		self.debug = debug
 		self.master = xmlrpclib.ServerProxy(master_host)
 		self.chunk_size = self.master.get_chunksize()
 		self.chunkservers = {}
 		self.fd = 0
+		self.cache_counter = 0
 	
 	def update_chunkservers(self):
-		chunkservers = self.master.get_chunkservers()
-		for chunkserver in chunkservers:
-			if chunkserver['uuid'] not in self.chunkservers:
-				print "ADD CHUNKSERVER: ", chunkserver['uuid'], chunkserver['address']
-				self.chunkservers[chunkserver['uuid']] = EAFSChunkserver( chunkserver['uuid'], chunkserver['address'] )
+		self.cache_counter -= 1
+		if self.cache_counter<=0:
+			self.cache_counter = 50
+			chunkservers = self.master.get_chunkservers()
+			for chunkserver in chunkservers:
+				if chunkserver['uuid'] not in self.chunkservers:
+					print "ADD CHUNKSERVER: ", chunkserver['uuid'], chunkserver['address']
+					self.chunkservers[chunkserver['uuid']] = EAFSChunkserver( chunkserver['uuid'], chunkserver['address'] )
 	
 	def write_chunks(self, chunkuuids, data):
 		chunks = [ data[x:x+self.chunk_size] \
 			for x in range(0, len(data), self.chunk_size) ]
+		#start = time.time()
 		self.update_chunkservers()
-		#print "CHUNKSERVERS: ", len(self.chunkservers)
+		#if self.debug>0: print "[write_chunks] update_chunkservers: ", (time.time()-start)
+		#start_total = time.time()
 		for i in range(0, len(chunkuuids)): # write to each chunkserver
 			chunkuuid = chunkuuids[i]
 			chunklocs = self.master.get_chunklocs(chunkuuid)
 			chunkserver_writes = 0
 			for chunkloc in chunklocs:
-				#print "Chunk size: ", i, len(chunks[i])
+				#if self.debug>3: print "Chunk size: ", i, len(chunks[i])
 				try:
+					#start = time.time()
 					self.chunkservers[chunkloc].rpc.write(chunkuuid, xmlrpclib.Binary(zlib.compress(chunks[i])))
+					#if self.debug>1: print "[write_chunks] rpc.write: ", (time.time()-start)
 					chunkserver_writes += 1
 				except:
 					print "Chunkserver %s failed" % chunkloc
@@ -61,6 +70,7 @@ class EAFSClientLib():
 						del self.chunkservers[chunkloc]
 			if chunkserver_writes==0:
 				raise Exception("write_chunks error, not enough chunkserver available")
+		#if self.debug>0: print "[write_chunks] total writes: ", (time.time()-start_total)
 	
 	
 	def num_chunks(self, size):
@@ -73,7 +83,9 @@ class EAFSClientLib():
 			raise Exception("append error, file does not exist: " + filename)
 		num_append_chunks = self.num_chunks(len(data))
 		#print "[eafs_write_append] DATA SIZE, NUM CHUNKS:", len(data), num_append_chunks
+		start = time.time()
 		append_chunkuuids = self.master.alloc_append(filename, num_append_chunks)
+		#if self.debug>0: print "[eafs_write_append] master.alloc_append: ", (time.time()-start)
 		self.write_chunks(append_chunkuuids, data) 
 		return len(data)
 	
@@ -92,10 +104,14 @@ class EAFSClientLib():
 		if not self.exists(filename):
 			raise Exception("read error, file does not exist: " + filename)
 		chunks = []
-		chunkuuids = self.master.get_chunkuuids(filename)
+		#if self.debug>1: print "eafs_read filename: [%s] size:%d offset:%d" % (filename, size, offset)
+		(chunkuuids, offset, chunkserver_uuids) = self.master.get_chunkuuids_offset(filename,size,offset)
+		#if self.debug>2: print "eafs_read chunkuuids: ", chunkuuids
 		self.update_chunkservers()
 		for chunkuuid in chunkuuids:
-			chunklocs = self.master.get_chunklocs(chunkuuid)
+			#if self.debug>3: print "eafs_read chunkuuid: ", chunkuuid
+			#chunklocs = self.master.get_chunklocs(chunkuuid)
+			chunklocs = chunkserver_uuids[chunkuuid]
 			done_chunkserver = []
 			chunk = None
 			chunk_read = False
@@ -104,7 +120,7 @@ class EAFSClientLib():
 				while chunkidrnd not in done_chunkserver and len(done_chunkserver)>0:
 					chunkidrnd = random.randint(0, len(chunklocs)-1)
 				chunkloc = chunklocs[chunkidrnd]
-				#print "Select chunkloc %s from %d choices" % (chunkloc, len(chunklocs))
+				#if self.debug>2: print "Select chunkloc %s from %d choices" % (chunkloc, len(chunklocs))
 				try:
 					chunk_raw = self.chunkservers[chunkloc].rpc.read(chunkuuid)
 					chunk = chunk_raw.data
@@ -115,6 +131,8 @@ class EAFSClientLib():
 			if not chunk_read:
 				raise Exception("read error, chunkserver unavailable: " + filename)
 			chunks.append(chunk)
+		if len(chunks)==0:
+			return None
 		data = reduce(lambda x, y: x + y, chunks) # reassemble in order
 		return data[offset:offset+size]
 
