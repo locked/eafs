@@ -39,7 +39,7 @@ class EAFSClientLib():
 	def update_chunkservers(self):
 		self.cache_counter -= 1
 		if self.cache_counter<=0:
-			self.cache_counter = 50
+			self.cache_counter = 100
 			chunkservers = self.master.get_chunkservers()
 			for chunkserver in chunkservers:
 				if chunkserver['uuid'] not in self.chunkservers:
@@ -55,19 +55,21 @@ class EAFSClientLib():
 		#start_total = time.time()
 		for i in range(0, len(chunkuuids)): # write to each chunkserver
 			chunkuuid = chunkuuids[i]
-			chunklocs = self.master.get_chunklocs(chunkuuid)
+			chunklocs = self.master.choose_chunkserver_uuids()
+			#self.master.get_chunklocs(chunkuuid)
 			chunkserver_writes = 0
 			for chunkloc in chunklocs:
-				#if self.debug>3: print "Chunk size: ", i, len(chunks[i])
-				try:
-					#start = time.time()
-					self.chunkservers[chunkloc].rpc.write(chunkuuid, xmlrpclib.Binary(zlib.compress(chunks[i])))
-					#if self.debug>1: print "[write_chunks] rpc.write: ", (time.time()-start)
-					chunkserver_writes += 1
-				except:
-					print "Chunkserver %s failed" % chunkloc
-					if chunkloc in self.chunkservers:
-						del self.chunkservers[chunkloc]
+				if chunkloc in self.chunkservers:
+					#if self.debug>3: print "Chunk size: ", i, len(chunks[i])
+					try:
+						#start = time.time()
+						self.chunkservers[chunkloc].rpc.write(chunkuuid, xmlrpclib.Binary(zlib.compress(chunks[i])))
+						#if self.debug>1: print "[write_chunks] rpc.write: ", (time.time()-start)
+						chunkserver_writes += 1
+					except:
+						print "Chunkserver %s failed" % chunkloc
+						if chunkloc in self.chunkservers:
+							del self.chunkservers[chunkloc]
 			if chunkserver_writes==0:
 				raise Exception("write_chunks error, not enough chunkserver available")
 		#if self.debug>0: print "[write_chunks] total writes: ", (time.time()-start_total)
@@ -117,17 +119,20 @@ class EAFSClientLib():
 			chunk_read = False
 			while not (chunk_read or len(done_chunkserver)==len(chunklocs)):
 				chunkidrnd = random.randint(0, len(chunklocs)-1)
-				while chunkidrnd not in done_chunkserver and len(done_chunkserver)>0:
-					chunkidrnd = random.randint(0, len(chunklocs)-1)
+				#print "Random: ", chunkidrnd, done_chunkserver, chunklocs
+				if len(done_chunkserver)>0:
+					while chunkidrnd in done_chunkserver:
+						chunkidrnd = random.randint(0, len(chunklocs)-1)
+						#print "Random2: ", chunkidrnd, done_chunkserver, chunklocs
 				chunkloc = chunklocs[chunkidrnd]
-				#if self.debug>2: print "Select chunkloc %s from %d choices" % (chunkloc, len(chunklocs))
+				done_chunkserver.append(chunkidrnd)
+				#if self.debug>2: print "Select chunkloc %d::%s from %d choices" % (chunkidrnd, chunkloc, len(chunklocs))
 				try:
 					chunk_raw = self.chunkservers[chunkloc].rpc.read(chunkuuid)
 					chunk = zlib.decompress(chunk_raw.data)
 					chunk_read = True
 				except:
 					print "Chunkserver %d failed %d remaining" % (chunkidrnd, len(chunklocs)-len(done_chunkserver))
-				done_chunkserver.append(chunkidrnd)
 			if not chunk_read:
 				raise Exception("read error, chunkserver unavailable: " + filename)
 			chunks.append(chunk)

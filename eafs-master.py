@@ -153,9 +153,10 @@ class EAFSMaster:
 						print "error connecting to chunkserver"
 				else:
 					print "no chunk server to replicate %d::%s on %s" % (i, chunk_uuid, src_chunkserver_uuid)
-			print "%d of %d chunks replicated, total %d left" % (num_replicated, num, len(chunks_to_replicate))
+			if num>0:
+				print "%d of %d chunks replicated, total %d left" % (num_replicated, num, len(chunks_to_replicate))
 			#print "Regular replicator thread end"
-			time.sleep( 10 )
+			time.sleep( 120 )
 	
 	
 	def get_chunksize(self):
@@ -289,10 +290,11 @@ class EAFSMaster:
 			c.execute("""insert into chunk values (?)""", (chunk_uuid, ))
 			chunkserver_uuids = self.choose_chunkserver_uuids()
 			# Insert chunk/chunkserver relation
+			# No: this is the chunkserver job
 			#self.chunktable[chunk_uuid] = chunkserver_uuids
 			#for chunkserver_uuid in chunkserver_uuids:
 			#	c.execute("""insert into chunk_server values (?, ?)""", (chunk_uuid, chunkserver_uuid))
-			self.alloc_chunks_to_chunkservers( chunk_uuid, chunkserver_uuids )
+			#self.alloc_chunks_to_chunkservers( chunk_uuid, chunkserver_uuids )
 		start_sql = time.time()
 		self.db.commit()
 		if self.debug>0: print "[alloc_chunks] sql commit: ", (time.time()-start_sql)
