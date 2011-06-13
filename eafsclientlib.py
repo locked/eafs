@@ -33,7 +33,6 @@ class EAFSClientLib():
 		self.chunk_size = self.master.get_chunksize()
 		self.chunkservers = {}
 		self.fd = 0
-		#print self.master.dump_metadata()
 	
 	def update_chunkservers(self):
 		chunkservers = self.master.get_chunkservers()

@@ -29,8 +29,8 @@ from fuse import FUSE, FuseOSError, Operations, LoggingMixIn
 from eafsclientlib import EAFSClientLib
 
 
-#LoggingMixIn
-class EAFSClientFuse(EAFSClientLib, LoggingMixIn, Operations):
+# LoggingMixIn, 
+class EAFSClientFuse(EAFSClientLib, Operations):
 	def exists(self, filename):
 		return self.master.exists(filename)
 	
@@ -47,10 +47,8 @@ class EAFSClientFuse(EAFSClientLib, LoggingMixIn, Operations):
 		return self.eafs_write(path, data, attributes)
 	
 	def create(self, path, mode):
-		attributes = {"type":"f", "atime":"", "ctime":"", "mtime":"", "attrs":""}
+		attributes = {"type":"f", "atime":time.time(), "ctime":time.time(), "mtime":time.time(), "size":0, "links":1, "attrs":""}
 		chunkuuids = self.master.alloc(path, 0, attributes)
-		#self.files[path] = dict(st_mode=(S_IFREG | mode), st_nlink=1,
-		#    st_size=0, st_ctime=time(), st_mtime=time(), st_atime=time())
 		self.fd += 1
 		return self.fd
 	

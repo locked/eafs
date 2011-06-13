@@ -26,13 +26,8 @@ import sqlite3
 
 
 db_filename = "eafs.db"
-"""
-create table file (name text, mode text, attrs text, ctime text, mtime text, atime text, PRIMARY KEY(name));
-create table chunk (uuid text, PRIMARY KEY(uuid));
-create table file_chunk (file_name text, chunk_uuid text, UNIQUE(file_name,chunk_uuid));
-create table server (uuid text, address text, PRIMARY KEY(uuid));
-create table chunk_server (chunk_uuid text, server_uuid text, UNIQUE(chunk_uuid,server_uuid));
-"""
+
+
 class EAFSInode:
 	def __init__(self, attrs=None):
 		self.id = ""
@@ -49,13 +44,15 @@ class EAFSInode:
 		self.links = 0
 		self.chunks = []
 		if attrs is not None:
-			self.id = attrs['id']
-			self.name = attrs['name']
-			self.type = attrs['type']
-			self.parent = attrs['parent']
+			if 'id' in attrs:
+				self.id = attrs['id']
+			if 'parent' in attrs:
+				self.parent = attrs['parent']
+			if 'name' in attrs:
+				self.name = attrs['name']
+			if 'type' in attrs:
+				self.type = attrs['type']
 		self.size = 0
-		#self.db = db
-		#self.chunksize = chunksize
 	
 	def update_from_db(self, inode_raw):
 		self.id = inode_raw[0]
@@ -70,12 +67,6 @@ class EAFSInode:
 		self.mtime = inode_raw[9]
 		self.atime = inode_raw[10]
 		self.links = inode_raw[11]
-	#def load_chunks(self):
-	#	c = self.db.cursor()
-	#	c.execute("""select * from inode_chunk where inode_id=?""", (self.id, ) )
-	#	for row in c:
-	#		self.chunks.append( row[chunk_uuid] )
-	#	self.size = len(self.chunks) * self.chunksize
 
 
 class EAFSChunkserver:
@@ -96,34 +87,29 @@ class EAFSMaster:
 			# Init DB
 			c = self.db.cursor()
 			try:
-				c.execute('drop table inode')
-				c.execute('drop table chunk')
-				c.execute('drop table inode_chunk')
-				c.execute('drop table server')
-				c.execute('drop table chunk_server')
+				c.execute('DROP TABLE IF EXISTS inode')
+				c.execute('DROP TABLE IF EXISTS chunk')
+				c.execute('DROP TABLE IF EXISTS inode_chunk')
+				c.execute('DROP TABLE IF EXISTS server')
+				c.execute('DROP TABLE IF EXISTS chunk_server')
 				self.db.commit()
 			except:
 				pass
-			#c.execute('create table file (name text, mode text, attrs text, ctime text, mtime text, atime text, PRIMARY KEY(name))')
-			c.execute('create table inode (id INTEGER PRIMARY KEY AUTOINCREMENT, parent INTEGER, name text, type char(1), perms text, uid int, gid int, attrs text, ctime text, mtime text, atime text, links int, UNIQUE(parent, name))')
-			c.execute('create table chunk (uuid text, PRIMARY KEY(uuid))')
-			#c.execute('create table file_chunk (file_name text, chunk_uuid text, UNIQUE(file_name,chunk_uuid))')
-			c.execute('create table inode_chunk (inode_id INTEGER, chunk_uuid text, UNIQUE(inode_id,chunk_uuid))')
-			c.execute('create table server (uuid text, address text, PRIMARY KEY(uuid))')
-			c.execute('create table chunk_server (chunk_uuid text, server_uuid text, UNIQUE(chunk_uuid,server_uuid))')
+			c.execute('CREATE TABLE inode (id INTEGER PRIMARY KEY AUTOINCREMENT, parent INTEGER, name text, type char(1), perms text, uid int, gid int, attrs text, ctime text, mtime text, atime text, links int, UNIQUE(parent, name))')
+			c.execute('CREATE TABLE chunk (uuid text, PRIMARY KEY(uuid))')
+			c.execute('CREATE TABLE inode_chunk (inode_id INTEGER, chunk_uuid text, UNIQUE(inode_id,chunk_uuid))')
+			c.execute('CREATE TABLE server (uuid text, address text, PRIMARY KEY(uuid))')
+			c.execute('CREATE TABLE chunk_server (chunk_uuid text, server_uuid text, UNIQUE(chunk_uuid,server_uuid))')
 			self.db.commit()
 			c.close()
 		self.root_inode_id = 0
 		self.max_chunkservers = 100
-		#self.max_chunksperfile = 10000000
 		self.chunksize = 4096
-		#self.filetable = {}
 		self.inodetable = {}
 		self.inode_childrens = {}
 		self.chunktable = {}
 		self.chunkservers = {}
 		self.load_chunkservers()
-		#self.load_files()
 		self.load_inodes()
 		self.load_chunks()
 	
@@ -133,7 +119,7 @@ class EAFSMaster:
 	
 	
 	def load_inodes(self):
-		print "LOAD INODETABLE: ", 
+		print "LOAD INODETABLE: ",
 		c = self.db.cursor()
 		c.execute('select * from inode')
 		num_inodetable = 0
@@ -141,14 +127,13 @@ class EAFSMaster:
 			inode = EAFSInode()
 			inode.update_from_db( row )
 			self.inodetable[row[0]] = inode
-			#{"parent": row[1], "name":row[2], "type":row[3], "perms":row[4], "uid":row[5], "gid":row[6], "attrs":row[7], "ctime":row[8], "mtime":row[9], "atime":row[10], "links":row[11], "chunks":[]}
 			if row[1] not in self.inode_childrens:
 				self.inode_childrens[row[1]] = []
 			self.inode_childrens[row[1]].append( self.inodetable[row[0]] )
 			num_inodetable += 1
 		if num_inodetable==0:
 			# Create root directory
-			root_inode = self.create_inode( "/", { "type":"d", "attrs":"", "ctime":"", "mtime":"", "atime":"" } )
+			root_inode = self.create_inode( "/" )
 			self.root_inode_id = root_inode.id
 		else:
 			root_inode = self.get_inode_from_filename( "/" )
@@ -158,23 +143,9 @@ class EAFSMaster:
 			self.inodetable[row[0]].chunks.append( row[1] )
 		print " (%d)" % num_inodetable
 	
-	"""
-	def load_files(self):
-		print "LOAD FILETABLE: ", 
-		c = self.db.cursor()
-		c.execute('select * from file')
-		num_filetable = 0
-		for row in c:
-			self.filetable[row[0]] = {"mode":row[1], "attrs":row[2], "ctime":row[3], "mtime":row[4], "atime":row[5],"chunks":[]}
-			num_filetable += 1
-		c.execute('select * from file_chunk')
-		for row in c:
-			self.filetable[row[0]]["chunks"].append( row[1] )
-		print " (%d)" % num_filetable
-	"""
 	
 	def load_chunks(self):
-		print "LOAD CHUNKTABLE: ", 
+		print "LOAD CHUNKTABLE: ",
 		c = self.db.cursor()
 		c.execute('select * from chunk_server')
 		num_chunktable = 0
@@ -188,7 +159,7 @@ class EAFSMaster:
 	
 	
 	def load_chunkservers(self):
-		print "LOAD CHUNKSERVERS: ", 
+		print "LOAD CHUNKSERVERS: ",
 		c = self.db.cursor()
 		c.execute('select * from server')
 		num_chunkservers = 0
@@ -228,7 +199,9 @@ class EAFSMaster:
 	
 	def alloc(self, filename, num_chunks, attributes): # return ordered chunkuuid list
 		chunkuuids = self.alloc_chunks(num_chunks)
-		self.save_filechunktable(filename, chunkuuids, attributes)
+		inode = EAFSInode(attributes)
+		inode.name = os.path.basename( filename )
+		self.save_inodechunktable(filename, chunkuuids, inode)
 		return chunkuuids
 	
 	
@@ -240,9 +213,7 @@ class EAFSMaster:
 			chunk_uuid = str(uuid.uuid1())
 			chunkserver_uuids = self.choose_chunkserver_uuids()
 			self.chunktable[chunk_uuid] = chunkserver_uuids
-			#print "INSERT CHUNK %s" % chunk_uuid
 			c.execute("""insert into chunk values (?)""", (chunk_uuid, ))
-			#print "INSERT CHUNK %s" % chunkserver.uuid
 			for chunkserver_uuid in chunkserver_uuids:
 				c.execute("""insert into chunk_server values (?, ?)""", (chunk_uuid, chunkserver_uuid))
 			chunkuuids.append(chunk_uuid)
@@ -264,11 +235,12 @@ class EAFSMaster:
 	
 	def get_parent_inode_from_filename( self, filename ):
 		dirname = os.path.dirname( filename )
-		print "  Dirname of %s: %s" % (filename, dirname)
+		#print "  Dirname of %s: %s" % (filename, dirname)
 		return self.get_inode_from_filename( dirname )
 	
+	
 	def get_inode_from_filename( self, filename ):
-		print "get_inode_from_filename: ", filename
+		#print "get_inode_from_filename: ", filename
 		c = self.db.cursor()
 		fs = filename.split("/")[1:]
 		if filename=="/":
@@ -276,10 +248,9 @@ class EAFSMaster:
 		else:
 			parent_inode_id = self.root_inode_id
 		curpath = ""
-		print fs
+		#print fs
 		for fn in fs:
-			print "  Lookup inode: ", parent_inode_id, fn,
-			print "    select * from inode where parent=%d and name=%s" % (parent_inode_id, fn)
+			#print "  Lookup inode: ", parent_inode_id, fn
 			c.execute("""select * from inode where parent=? and name=?""", (parent_inode_id, fn) )
 			inode_raw = None
 			for row in c:
@@ -288,11 +259,8 @@ class EAFSMaster:
 				curpath = curpath + "/" + fn
 				inode_id = inode_raw[0]
 				parent_inode_id = inode_id
-				print "  Found inode: %d (%s : %s)" % (inode_id, curpath, filename)
-				#inode = EAFSInode()
-				#inode.update_from_db(inode_raw)
+				#print "  Found inode: %d (%s : %s)" % (inode_id, curpath, filename)
 				if curpath==filename:
-					#inode.load_chunks()
 					if inode_id in self.inodetable:
 						inode = self.inodetable[inode_id]
 					else:
@@ -300,9 +268,9 @@ class EAFSMaster:
 						inode.update_from_db(inode_raw)
 					return inode
 			else:
-				print "  Failed"
+				#print "  Not found"
 				return False
-		print "get_inode_from_filename return: ", inode
+		#print "get_inode_from_filename return: ", inode
 		return inode
 		
 	
@@ -317,7 +285,6 @@ class EAFSMaster:
 		if not self.get_inode_from_filename( filename ):
 			return False
 		return True
-		#return True if filename in self.filetable else False
 	
 	
 	def delete(self, filename):
@@ -337,24 +304,29 @@ class EAFSMaster:
 	
 	
 	def rename(self, filename, new_filename):
+		#print "0 file: " + filename + " renamed to " + new_filename
 		inode = self.get_inode_from_filename( filename )
-		#chunkuuids = self.get_chunkuuids(filename)
-		#attributes = self.filetable[filename]
+		#print "1 file: " + filename + " renamed to " + new_filename
 		attributes = self.inodetable[inode.id]
+		#print "2 file: " + filename + " renamed to " + new_filename
+		chunkuuids = attributes.chunks
+		#print "3 file: " + filename + " renamed to " + new_filename
 		del self.inodetable[inode.id]
 		c = self.db.cursor()
 		c.execute("""delete from inode_chunk where inode_id=?""", (inode.id, ))
 		c.execute("""delete from inode where id=?""", (inode.id, ))
 		self.db.commit()
 		c.close()
-		self.save_filechunktable(new_filename,chunkuuids,attributes)
+		#print "4 file: " + filename + " renamed to " + new_filename
+		self.save_inodechunktable(new_filename,chunkuuids,attributes)
 		print "file: " + filename + " renamed to " + new_filename
 	
 	
-	def create_inode(self, filename, attributes=None):
-		print "Create inode: ", filename
-		if attributes is None:
-			attributes = { "type":"d", "attrs":"", "ctime":"", "mtime":"", "atime":"" }
+	def create_inode(self, filename, inode=None):
+		#print "Create inode: ", filename
+		create_filename = os.path.basename( filename )
+		if inode is None:
+			inode = EAFSInode({ "type":"d", "name":create_filename, "attrs":"", "ctime":"", "mtime":"", "atime":"" })
 		if filename=="/":
 			parent_inode_id = 0
 		else:
@@ -362,15 +334,13 @@ class EAFSMaster:
 			if not parent_inode:
 				return False
 			parent_inode_id = parent_inode.id
-		create_filename = os.path.basename( filename ) #.strip( "/" )
 		c = self.db.cursor()
-		c.execute("""insert into inode (parent,name,type,perms,uid,gid,attrs,ctime,mtime,atime,links) values (?,?,?,?,?,?,?,?,?,?,?)""", (parent_inode_id, create_filename, attributes["type"], "wrxwrxwrx", 0, 0, attributes["attrs"], attributes["ctime"], attributes["mtime"], attributes["atime"], 0))
-		print "Create: ", "insert into inode (parent,name,type,perms,uid,gid,attrs,ctime,mtime,atime,links) values (%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)" % (parent_inode_id, create_filename, attributes["type"], "wrxwrxwrx", 0, 0, attributes["attrs"], attributes["ctime"], attributes["mtime"], attributes["atime"], 0)
+		c.execute("""insert into inode (parent,name,type,perms,uid,gid,attrs,ctime,mtime,atime,links) values (?,?,?,?,?,?,?,?,?,?,?)""", (parent_inode_id, create_filename, inode.type, "755", 0, 0, inode.attrs, inode.ctime, inode.mtime, inode.atime, 0))
+		#print "Create: ", "insert into inode (parent,name,type,perms,uid,gid,attrs,ctime,mtime,atime,links) values (%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)" % (parent_inode_id, create_filename, attributes["type"], "wrxwrxwrx", 0, 0, attributes["attrs"], attributes["ctime"], attributes["mtime"], attributes["atime"], 0)
 		self.db.commit()
 		c.close()
 		inode = self.get_inode_from_filename( filename )
 		if inode:
-			#print inode
 			self.inodetable[inode.id] = inode
 			if parent_inode_id not in self.inode_childrens:
 				self.inode_childrens[parent_inode_id] = []
@@ -378,73 +348,42 @@ class EAFSMaster:
 		return inode
 	
 	
-	def save_filechunktable(self, filename, chunkuuids, attributes):
+	def save_inodechunktable(self, filename, chunkuuids, save_inode):
 		inode = self.get_inode_from_filename( filename )
 		c = self.db.cursor()
 		if not inode:
-			inode = self.create_inode( filename, attributes )
+			inode = self.create_inode( filename, save_inode )
 			if not inode:
 				return False
+		#print "Save %d chunks for node %d" % (len(self.inodetable[inode.id].chunks), inode.id)
 		self.inodetable[inode.id].chunks = chunkuuids
-		print "Save %d chunks for node %d" % (len(self.inodetable[inode.id].chunks), inode.id)
 		for chunkuuid in chunkuuids:
 			c.execute("""insert into inode_chunk values (?,?)""", (inode.id, chunkuuid))
 		self.db.commit()
 		c.close()
+	
 	
 	def list_files(self, filename):
 		file_list = []
 		parent_inode = self.get_inode_from_filename( filename )
 		if not parent_inode:
 			return file_list
-		#c = self.db.cursor()
-		#print "List files: select * from inode where parent=%d" % parent_inode.id
-		#c.execute("""select * from inode where parent=?""", (parent_inode.id, ) )
-		#for row in c:
 		print "list_files from %s: %d" % (filename, parent_inode.id)
-		#print self.inode_childrens
 		if parent_inode.id not in self.inode_childrens:
 			return file_list
 		#print "  LIST:"
 		for inode in self.inode_childrens[parent_inode.id]:
 			#print "    INODE:", inode
-			#file_list.append( {"filename":row[2], "type":row[3]} )
 			file_list.append( inode )
 		return file_list
-		
-	"""
-	def list_files(self, path):
-		file_list = []
-		if path=="/":
-			paths = ['']
-		else:
-			paths = path.split("/")
-		level = len(paths)
-		for filename, attributes in self.filetable.items():
-			filepaths = filename.split("/")
-			if len(filepaths)<=len(paths):
-				continue
-			for i in range(0,len(paths)):
-				if paths[i]==filepaths[i]:
-					if level-1==i:
-						file_list.append( {"filename":filepaths[i+1], "mode":attributes["mode"]} )
-		return file_list
-	"""
+	
 	
 	def file_attr(self, filename):
 		inode = self.get_inode_from_filename( filename )
 		if inode:
 			inode.size = len(inode.chunks) * self.chunksize
-			print "Inode: %d Size: %d Chunks: %d ChunkSize:%d" % (inode.id, inode.size, len(inode.chunks), self.chunksize)
-			#print inode
+			#print "Inode: %d Size: %d Chunks: %d ChunkSize:%d" % (inode.id, inode.size, len(inode.chunks), self.chunksize)
 			return inode
-		"""
-		if path=="/":
-			return {'mode':"dir",'size':0}
-		if path in self.filetable:
-			attributes = self.filetable[path]
-			return {'mode':attributes["mode"],'size':len(attributes["chunks"])*self.chunksize}
-		"""
 		return None
 	
 	
@@ -462,7 +401,7 @@ class EAFSMaster:
 
 
 
-# Restrict to a particular path.
+# Restrict to a particular path
 class RequestHandler(SimpleXMLRPCRequestHandler):
 	rpc_paths = ('/RPC2',)
 
