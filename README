@@ -1,6 +1,8 @@
 EAFS
 ====
 
+Disclaimer: This filesystem is _not_ ready for production. Please feel free to contribute in making it rock solid :)
+
 EAFS is a distributed filesystem in python, aiming simplicity and very extendable. It is composed of 3 main parts:
 
 - Master Servers
@@ -24,5 +26,6 @@ EAFS is a distributed filesystem in python, aiming simplicity and very extendabl
 Requirements
 ------------
 
+ - python-sqlite
  - fuse.py (http://code.google.com/p/fusepy/ or http://php.lunasys.fr/fuse.py)
 

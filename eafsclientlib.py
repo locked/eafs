@@ -86,38 +86,38 @@ class EAFSClientLib():
 			+ (1 if size % self.chunk_size > 0 else 0)
 	
 	
-	def accumulate(self, path, data):
-		if path not in self.chunk_cache:
-			self.chunk_cache[path] = ""
-		self.chunk_cache[path] += data
-		if len(self.chunk_cache[path])>=self.chunk_size:
-			self.flush_low( path )
+	def accumulate(self, path, data, fh):
+		if fh not in self.chunk_cache:
+			self.chunk_cache[fh] = ""
+		self.chunk_cache[fh] += data
+		if len(self.chunk_cache[fh])>=self.chunk_size:
+			self.flush_low( path, fh )
 		return len(data)
 	
 	
-	def eafs_write_append(self, path, data):
+	def eafs_write_append(self, path, data, fh):
 		#if not self.exists(path):
 		#	raise Exception("append error, file does not exist: " + path)
-		
 		#num_append_chunks = self.num_chunks(len(data))
 		#print "[eafs_write_append] DATA SIZE, NUM CHUNKS:", len(data), num_append_chunks
 		#start = time.time()
 		#append_chunkuuids = self.master.alloc_append(path, num_append_chunks)
 		#if self.debug>0: print "[eafs_write_append] master.alloc_append: ", (time.time()-start)
 		#self.write_chunks(append_chunkuuids, data)
-		return self.accumulate( path, data )
+		#print "eafs_write: fh:%d path:%s data:%d chunk_cache:%d" % (fh, path, len(data), len(self.chunk_cache[fh]))
+		return self.accumulate( path, data, fh )
 	
 	
-	def flush_low(self, path):
-		if path not in self.chunk_cache:
+	def flush_low(self, path, fh):
+		if fh not in self.chunk_cache:
 			return False
-		if len(self.chunk_cache[path])>self.chunk_size:
-			data = self.chunk_cache[path][0:self.chunk_size]
+		if len(self.chunk_cache[fh])>self.chunk_size:
+			data = self.chunk_cache[fh][0:self.chunk_size]
 		else:
-			data = self.chunk_cache[path]
+			data = self.chunk_cache[fh]
 		#print "data:", data
 		#print "cache:", self.chunk_cache[path]
-		#print "Flush Low: data:%d chunk_cache:%d chunk_size:%d" % (len(data), len(self.chunk_cache[path]), self.chunk_size)
+		#print "Flush Low: fh:%d path:%s data:%d chunk_cache:%d chunk_size:%d" % (fh, path, len(data), len(self.chunk_cache[fh]), self.chunk_size)
 		if len(data)>0:
 			num_append_chunks = self.num_chunks(len(data))
 			#print "Flush Low: chunks:%d" % (num_append_chunks)
@@ -126,12 +126,13 @@ class EAFSClientLib():
 				chunkuuids = self.master.alloc(path, num_append_chunks, attributes)
 			else:
 				chunkuuids = self.master.alloc_append(path, num_append_chunks)
-			#print "Flush Low: append_chunkuuids:%d" % (len(chunkuuids))
+			#print "Flush Low: append_chunkuuids:%d" % (len(data))
+			self.master.file_set_attr(path, 'size', int(len(data)), 'add')
 			
 			self.write_chunks(chunkuuids, data)
 			
-			if path in self.chunk_cache:
-				self.chunk_cache[path] = self.chunk_cache[path][self.chunk_size:]
+			if fh in self.chunk_cache:
+				self.chunk_cache[fh] = self.chunk_cache[fh][self.chunk_size:]
 			else:
 				return 0
 		return True
@@ -139,46 +140,47 @@ class EAFSClientLib():
 	def exists(self, path):
 		return self.master.exists(path)
 	
-	def eafs_flush(self, path):
+	def eafs_flush(self, path, fh):
 		#print "** FUSE called flush( %s ) **" % path
-		self.flush_low( path )
+		self.flush_low( path, fh )
 		#del self.chunk_cache[path]
 		return True
 	
-	def eafs_write(self, path, data): #, attributes
+	def eafs_write(self, path, data, fh): #, attributes
 		if self.exists(path):
 			self.delete(path)
 		#num_chunks = self.num_chunks(len(data))
 		#chunkuuids = self.master.alloc(path, num_chunks, attributes)
-		self.accumulate( path, data )
+		#print "eafs_write: fh:%d path:%s data:%d" % (fh, path, len(data))
+		self.accumulate( path, data, fh )
 		#self.write_chunks(chunkuuids, data)
 		return len(data)
 	
 	
 	def eafs_read(self, path, size, offset):
-		filename = path
-		if not self.exists(filename):
-			raise Exception("read error, file does not exist: " + filename)
-		chunks = []
-		#if self.debug>1: print "eafs_read filename: [%s] size:%d offset:%d" % (filename, size, offset)
-		#print "eafs_read: ", filename, size, offset
-		(chunkuuids, offset, chunkserver_uuids) = self.master.get_chunkuuids_offset(filename,size,offset)
+		if not self.exists(path):
+			raise Exception("read error, file does not exist: " + path)
+		#if self.debug>1: print "eafs_read path: [%s] size:%d offset:%d" % (path, size, offset)
+		#print "eafs_read: ", path, size, offset
+		(chunkuuids, offset, chunkserver_uuids) = self.master.get_chunkuuids_offset(path,size,offset)
 		#print "eafs_read chunkserver_uuids: ", chunkserver_uuids
 		#if self.debug>2:
 		#print "eafs_read chunkuuids: ", chunkuuids
 		self.update_chunkservers()
+		chunks = []
 		for chunkuuid in chunkuuids:
 			#if self.debug>3: 
 			#print "eafs_read chunkuuid: ", chunkuuid
-			#chunklocs = self.master.get_chunklocs(chunkuuid)
-			chunklocs = chunkserver_uuids[chunkuuid]
-			done_chunkserver = []
-			chunk = None
+			#chunklocs = self.master.get_chunklocs()
 			if chunkuuid in self.chunk_cache_read:
 				chunk = self.chunk_cache_read[chunkuuid]
 				chunk_read = True
+				#print "eafs_read chunkuuid:%s chunk:%d " % (chunkuuid, len(chunk))
 			else:
+				chunk = None
 				chunk_read = False
+				chunklocs = chunkserver_uuids[chunkuuid]
+				done_chunkserver = []
 				while not (chunk_read or len(done_chunkserver)==len(chunklocs)):
 					chunkidrnd = random.randint(0, len(chunklocs)-1)
 					#print "Random: ", chunkidrnd, done_chunkserver, chunklocs
@@ -194,7 +196,7 @@ class EAFSClientLib():
 						# Read from chunkserver
 						chunk_raw = self.chunkservers[chunkloc].rpc.read(chunkuuid)
 						chunk = zlib.decompress(chunk_raw.data)
-						print "Read: ", chunkuuid, len(chunk)
+						#print "Read: ", chunkuuid, len(chunk)
 						
 						# Add to read cache
 						self.chunk_cache_read[chunkuuid] = chunk
@@ -203,10 +205,12 @@ class EAFSClientLib():
 					except:
 						print "Chunkserver %d failed %d remaining" % (chunkidrnd, len(chunklocs)-len(done_chunkserver))
 			if not chunk_read:
-				raise Exception("read error, chunkserver unavailable: " + filename)
+				raise Exception("read error, chunkserver unavailable: " + path)
 			chunks.append(chunk)
 		if len(chunks)==0:
 			return None
 		data = reduce(lambda x, y: x + y, chunks) # reassemble in order
-		return data[offset:offset+size]
+		data = data[offset:offset+size]
+		#print "eafs_read size:%d offset:%d data:%d chunk:%d " % (size, offset, len(data), len(chunk))
+		return data
 

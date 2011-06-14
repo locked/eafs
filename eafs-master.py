@@ -40,6 +40,7 @@ class EAFSInode:
 		self.mtime = ""
 		self.atime = ""
 		self.links = 0
+		self.size = 0
 		self.chunks = []
 		if attrs is not None:
 			if 'id' in attrs:
@@ -58,13 +59,14 @@ class EAFSInode:
 		self.name = inode_raw[2]
 		self.type = inode_raw[3]
 		self.perms = inode_raw[4]
-		self.uid = inode_raw[5]
-		self.gid = inode_raw[6]
+		self.uid = int(inode_raw[5])
+		self.gid = int(inode_raw[6])
 		self.attrs = inode_raw[7]
 		self.ctime = inode_raw[8]
 		self.mtime = inode_raw[9]
 		self.atime = inode_raw[10]
-		self.links = inode_raw[11]
+		self.links = int(inode_raw[11])
+		self.size = int(inode_raw[12])
 
 
 class EAFSChunkServerRpc:
@@ -95,7 +97,7 @@ class EAFSMaster:
 				self.db.commit()
 			except:
 				pass
-			c.execute('CREATE TABLE inode (id INTEGER PRIMARY KEY AUTOINCREMENT, parent INTEGER, name text, type char(1), perms text, uid int, gid int, attrs text, ctime text, mtime text, atime text, links int, UNIQUE(parent, name))')
+			c.execute('CREATE TABLE inode (id INTEGER PRIMARY KEY AUTOINCREMENT, parent INTEGER, name text, type char(1), perms text, uid int, gid int, attrs text, ctime text, mtime text, atime text, links int, size int, UNIQUE(parent, name))')
 			c.execute('CREATE TABLE chunk (uuid text, PRIMARY KEY(uuid))')
 			c.execute('CREATE TABLE inode_chunk (inode_id INTEGER, chunk_uuid text, UNIQUE(inode_id,chunk_uuid))')
 			c.execute('CREATE TABLE server (uuid text, address text, PRIMARY KEY(uuid))')
@@ -181,7 +183,7 @@ class EAFSMaster:
 		else:
 			root_inode = self.get_inode_from_filename( "/" )
 		self.root_inode_id = root_inode.id
-		c.execute('select * from inode_chunk')
+		c.execute('select * from inode_chunk order by chunk_uuid')
 		for row in c:
 			self.inodetable[row[0]].chunks.append( row[1] )
 		print " (%d)" % num_inodetable
@@ -366,7 +368,7 @@ class EAFSMaster:
 		else:
 			new_chunkuuids = chunkuuids[start:end]
 		#print chunkuuids
-		print "filename:%s size:%d offset:%d num:%d new_offset:%d start:%d end:%d" % (filename,size,offset,num,new_offset,start,end)
+		#print "filename:%s size:%d offset:%d num:%d new_offset:%d start:%d end:%d" % (filename,size,offset,num,new_offset,start,end)
 		#print new_chunkuuids
 		chunkserver_uuids = {}
 		for chunkuuid in new_chunkuuids:
@@ -377,6 +379,14 @@ class EAFSMaster:
 	def get_chunkuuids(self, filename):
 		inode = self.get_inode_from_filename( filename )
 		if inode:
+			"""
+			c = self.db.cursor()
+			c.execute("select chunk_uuid from inode_chunk where inode_id=? order by chunk_uuid", (inode.id, ) )
+			chunks = []
+			for row in c:
+				chunks.append( row[0] )
+			return chunks
+			"""
 			return self.inodetable[inode.id].chunks
 		return None
 	
@@ -438,7 +448,7 @@ class EAFSMaster:
 				return False
 			parent_inode_id = parent_inode.id
 		c = self.db.cursor()
-		c.execute("""insert into inode (parent,name,type,perms,uid,gid,attrs,ctime,mtime,atime,links) values (?,?,?,?,?,?,?,?,?,?,?)""", (parent_inode_id, create_filename, inode.type, "755", 0, 0, inode.attrs, inode.ctime, inode.mtime, inode.atime, 0))
+		c.execute("""insert into inode (parent,name,type,perms,uid,gid,attrs,ctime,mtime,atime,links,size) values (?,?,?,?,?,?,?,?,?,?,?,?)""", (parent_inode_id, create_filename, inode.type, "755", 0, 0, inode.attrs, inode.ctime, inode.mtime, inode.atime, 0, inode.size))
 		#print "Create: ", "insert into inode (parent,name,type,perms,uid,gid,attrs,ctime,mtime,atime,links) values (%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)" % (parent_inode_id, create_filename, attributes["type"], "wrxwrxwrx", 0, 0, attributes["attrs"], attributes["ctime"], attributes["mtime"], attributes["atime"], 0)
 		self.db.commit()
 		c.close()
@@ -491,10 +501,23 @@ class EAFSMaster:
 	def file_attr(self, filename):
 		inode = self.get_inode_from_filename( filename )
 		if inode:
-			inode.size = len(inode.chunks) * self.chunksize
+			#inode.size = len(inode.chunks) * self.chunksize
 			#print "Inode: %d Size: %d Chunks: %d ChunkSize:%d" % (inode.id, inode.size, len(inode.chunks), self.chunksize)
 			return inode
 		return None
+	
+	
+	def file_set_attr(self, filename, attr, val, op):
+		inode = self.get_inode_from_filename( filename )
+		c = self.db.cursor()
+		if inode:
+			if attr=='size':
+				if op=='add':
+					#print "file_set_attr: add new size: ", val
+					self.inodetable[inode.id].size+= val
+					c.execute("""update inode set size=? where id=?""", (inode.size, inode.id))
+		self.db.commit()
+		c.close()
 	
 	
 	def dump_metadata(self):

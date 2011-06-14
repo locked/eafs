@@ -38,12 +38,20 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 		self.master.rename(old, new)
 	
 	def write(self, path, data, offset, fh):
+		#print "FUSE Write path:%s fh:%d" % (path, fh)
 		if offset>0:
-			return self.eafs_write_append(path, data)
-		return self.eafs_write(path, data)
+			return self.eafs_write_append(path, data, fh)
+		return self.eafs_write(path, data, fh)
 	
-	def flush(self, path, fip):
-		if self.eafs_flush( path ):
+	def fsync(self, path, datasync, fh):
+		#print "FUSE Sync path:%s fh:%d" % (path, fh)
+		if self.eafs_flush( path, fh ):
+			return 0
+		return 1
+	
+	def flush(self, path, fh):
+		#print "FUSE Flush path:%s fh:%d" % (path, fh)
+		if self.eafs_flush( path, fh ):
 			return 0
 		return 1
 	
