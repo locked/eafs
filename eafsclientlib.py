@@ -33,6 +33,8 @@ class EAFSClientLib():
 		self.master = xmlrpclib.ServerProxy(master_host)
 		self.chunk_size = self.master.get_chunksize()
 		self.chunkservers = {}
+		self.chunk_cache = {}
+		self.chunk_cache_read = {}
 		self.fd = 0
 		self.cache_counter = 0
 	
@@ -49,6 +51,7 @@ class EAFSClientLib():
 	def write_chunks(self, chunkuuids, data):
 		chunks = [ data[x:x+self.chunk_size] \
 			for x in range(0, len(data), self.chunk_size) ]
+		
 		#start = time.time()
 		self.update_chunkservers()
 		#if self.debug>0: print "[write_chunks] update_chunkservers: ", (time.time()-start)
@@ -57,19 +60,22 @@ class EAFSClientLib():
 			chunkuuid = chunkuuids[i]
 			chunklocs = self.master.choose_chunkserver_uuids()
 			#self.master.get_chunklocs(chunkuuid)
+			#print "chunklocs: ", chunklocs
 			chunkserver_writes = 0
 			for chunkloc in chunklocs:
 				if chunkloc in self.chunkservers:
+					#print "chunkloc: ", chunkloc
 					#if self.debug>3: print "Chunk size: ", i, len(chunks[i])
-					try:
+					#try:
+					if True:
 						#start = time.time()
 						self.chunkservers[chunkloc].rpc.write(chunkuuid, xmlrpclib.Binary(zlib.compress(chunks[i])))
 						#if self.debug>1: print "[write_chunks] rpc.write: ", (time.time()-start)
 						chunkserver_writes += 1
-					except:
-						print "Chunkserver %s failed" % chunkloc
-						if chunkloc in self.chunkservers:
-							del self.chunkservers[chunkloc]
+					#except:
+					#	print "Chunkserver %s failed" % chunkloc
+					#	if chunkloc in self.chunkservers:
+					#		del self.chunkservers[chunkloc]
 			if chunkserver_writes==0:
 				raise Exception("write_chunks error, not enough chunkserver available")
 		#if self.debug>0: print "[write_chunks] total writes: ", (time.time()-start_total)
@@ -80,24 +86,66 @@ class EAFSClientLib():
 			+ (1 if size % self.chunk_size > 0 else 0)
 	
 	
-	def eafs_write_append(self, filename, data):
-		if not self.exists(filename):
-			raise Exception("append error, file does not exist: " + filename)
-		num_append_chunks = self.num_chunks(len(data))
+	def accumulate(self, path, data):
+		if path not in self.chunk_cache:
+			self.chunk_cache[path] = ""
+		self.chunk_cache[path] += data
+		if len(self.chunk_cache[path])>=self.chunk_size:
+			self.flush_low( path )
+			self.chunk_cache[path] = self.chunk_cache[path][self.chunk_size:]
+	
+	
+	def eafs_write_append(self, path, data):
+		#if not self.exists(path):
+		#	raise Exception("append error, file does not exist: " + path)
+		
+		#num_append_chunks = self.num_chunks(len(data))
 		#print "[eafs_write_append] DATA SIZE, NUM CHUNKS:", len(data), num_append_chunks
-		start = time.time()
-		append_chunkuuids = self.master.alloc_append(filename, num_append_chunks)
+		#start = time.time()
+		#append_chunkuuids = self.master.alloc_append(path, num_append_chunks)
 		#if self.debug>0: print "[eafs_write_append] master.alloc_append: ", (time.time()-start)
-		self.write_chunks(append_chunkuuids, data) 
+		self.accumulate( path, data )
+		#self.write_chunks(append_chunkuuids, data)
 		return len(data)
 	
 	
-	def eafs_write(self, path, data, attributes):
+	def flush_low(self, path):
+		if path not in self.chunk_cache:
+			return False
+		if len(self.chunk_cache)>self.chunk_size:
+			data = self.chunk_cache[path][0:self.chunk_size]
+		else:
+			data = self.chunk_cache[path]
+		#print "data:", data
+		#print "cache:", self.chunk_cache[path]
+		#print "Flush Low: data:%d chunk_cache:%d chunk_size:%d" % (len(data), len(self.chunk_cache[path]), self.chunk_size)
+		if len(data)>0:
+			num_append_chunks = self.num_chunks(len(data))
+			#print "Flush Low: chunks:%d" % (num_append_chunks)
+			if not self.exists(path):
+				attributes = {"type":"f", "atime":time.time(), "ctime":time.time(), "mtime":time.time(), "size":0, "links":1, "attrs":""}
+				chunkuuids = self.master.alloc(path, num_append_chunks, attributes)
+			else:
+				chunkuuids = self.master.alloc_append(path, num_append_chunks)
+			print "Flush Low: append_chunkuuids:%d" % (len(chunkuuids))
+			self.write_chunks(chunkuuids, data)
+		return True
+	
+	def exists(self, path):
+		return self.master.exists(path)
+	
+	def eafs_flush(self, path):
+		if self.flush_low( path ):
+			del self.chunk_cache[path]
+		return True
+	
+	def eafs_write(self, path, data): #, attributes
 		if self.exists(path):
 			self.delete(path)
-		num_chunks = self.num_chunks(len(data))
-		chunkuuids = self.master.alloc(path, num_chunks, attributes)
-		self.write_chunks(chunkuuids, data)
+		#num_chunks = self.num_chunks(len(data))
+		#chunkuuids = self.master.alloc(path, num_chunks, attributes)
+		self.accumulate( path, data )
+		#self.write_chunks(chunkuuids, data)
 		return len(data)
 	
 	
@@ -107,32 +155,47 @@ class EAFSClientLib():
 			raise Exception("read error, file does not exist: " + filename)
 		chunks = []
 		#if self.debug>1: print "eafs_read filename: [%s] size:%d offset:%d" % (filename, size, offset)
+		#print "eafs_read: ", filename, size, offset
 		(chunkuuids, offset, chunkserver_uuids) = self.master.get_chunkuuids_offset(filename,size,offset)
-		#if self.debug>2: print "eafs_read chunkuuids: ", chunkuuids
+		#print "eafs_read chunkserver_uuids: ", chunkserver_uuids
+		#if self.debug>2:
+		#print "eafs_read chunkuuids: ", chunkuuids
 		self.update_chunkservers()
 		for chunkuuid in chunkuuids:
-			#if self.debug>3: print "eafs_read chunkuuid: ", chunkuuid
+			#if self.debug>3: 
+			#print "eafs_read chunkuuid: ", chunkuuid
 			#chunklocs = self.master.get_chunklocs(chunkuuid)
 			chunklocs = chunkserver_uuids[chunkuuid]
 			done_chunkserver = []
 			chunk = None
-			chunk_read = False
-			while not (chunk_read or len(done_chunkserver)==len(chunklocs)):
-				chunkidrnd = random.randint(0, len(chunklocs)-1)
-				#print "Random: ", chunkidrnd, done_chunkserver, chunklocs
-				if len(done_chunkserver)>0:
-					while chunkidrnd in done_chunkserver:
-						chunkidrnd = random.randint(0, len(chunklocs)-1)
-						#print "Random2: ", chunkidrnd, done_chunkserver, chunklocs
-				chunkloc = chunklocs[chunkidrnd]
-				done_chunkserver.append(chunkidrnd)
-				#if self.debug>2: print "Select chunkloc %d::%s from %d choices" % (chunkidrnd, chunkloc, len(chunklocs))
-				try:
-					chunk_raw = self.chunkservers[chunkloc].rpc.read(chunkuuid)
-					chunk = zlib.decompress(chunk_raw.data)
-					chunk_read = True
-				except:
-					print "Chunkserver %d failed %d remaining" % (chunkidrnd, len(chunklocs)-len(done_chunkserver))
+			if chunkuuid in self.chunk_cache_read:
+				chunk = self.chunk_cache_read[chunkuuid]
+				chunk_read = True
+			else:
+				chunk_read = False
+				while not (chunk_read or len(done_chunkserver)==len(chunklocs)):
+					chunkidrnd = random.randint(0, len(chunklocs)-1)
+					#print "Random: ", chunkidrnd, done_chunkserver, chunklocs
+					if len(done_chunkserver)>0:
+						while chunkidrnd in done_chunkserver:
+							chunkidrnd = random.randint(0, len(chunklocs)-1)
+							#print "Random2: ", chunkidrnd, done_chunkserver, chunklocs
+					chunkloc = chunklocs[chunkidrnd]
+					done_chunkserver.append(chunkidrnd)
+					#if self.debug>2: 
+					#print "Select chunkloc %d::%s from %d choices" % (chunkidrnd, chunkloc, len(chunklocs))
+					try:
+						# Read from chunkserver
+						chunk_raw = self.chunkservers[chunkloc].rpc.read(chunkuuid)
+						chunk = zlib.decompress(chunk_raw.data)
+						print "Read: ", chunkuuid, len(chunk)
+						
+						# Add to read cache
+						self.chunk_cache_read[chunkuuid] = chunk
+						
+						chunk_read = True
+					except:
+						print "Chunkserver %d failed %d remaining" % (chunkidrnd, len(chunklocs)-len(done_chunkserver))
 			if not chunk_read:
 				raise Exception("read error, chunkserver unavailable: " + filename)
 			chunks.append(chunk)

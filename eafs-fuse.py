@@ -29,11 +29,8 @@ from fuse import FUSE, FuseOSError, Operations, LoggingMixIn
 from eafsclientlib import EAFSClientLib
 
 
-# LoggingMixIn, 
 class EAFSClientFuse(EAFSClientLib, Operations):
-	def exists(self, filename):
-		return self.master.exists(filename)
-	
+#class EAFSClientFuse(EAFSClientLib, LoggingMixIn, Operations):
 	def delete(self, filename):
 		self.master.delete(filename)
 	
@@ -43,8 +40,12 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 	def write(self, path, data, offset, fh):
 		if offset>0:
 			return self.eafs_write_append(path, data)
-		attributes = {"type":"f", "atime":time.time(), "ctime":time.time(), "mtime":time.time(), "size":0, "links":1, "attrs":""}
-		return self.eafs_write(path, data, attributes)
+		return self.eafs_write(path, data)
+	
+	def flush(self, path, fip):
+		if self.eafs_flush( path ):
+			return 0
+		return 1
 	
 	def create(self, path, mode):
 		attributes = {"type":"f", "atime":time.time(), "ctime":time.time(), "mtime":time.time(), "size":0, "links":1, "attrs":""}
@@ -73,18 +74,21 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 		fl = self.master.list_files(path)
 		files = {}
 		now = time.time()
+		#files = ['.','..']
 		for f in fl:
 			if f['type']=="d":
 				files[f['name']] = dict(st_mode=(S_IFDIR | 0755), st_size=f['size'], st_ctime=now, st_mtime=f['mtime'], st_atime=now, st_nlink=0)
 			else:
 				files[f['name']] = dict(st_mode=(S_IFREG | 0755), st_size=f['size'], st_ctime=now, st_mtime=f['mtime'], st_atime=now, st_nlink=0)
+			#files += { f['name']:dict(st_mode=(S_IFREG | 0755), st_size=f['size'], st_ctime=now, st_mtime=f['mtime'], st_atime=now, st_nlink=0) }
+		print "readdir: ", files
 		return ['.', '..'] + [x[0:] for x in files if x != '/']
 
 	def read(self, path, size, offset, fh):
 		return self.eafs_read( path, size, offset )
 	
 	def statfs(self, path):
-		return dict(f_bsize=512, f_blocks=32768, f_bavail=16384)
+		return dict(f_bsize=512, f_blocks=32768000, f_bavail=16384000)
 		#return dict(f_bsize=512, f_blocks=4096, f_bavail=2048)
 	
 	def open(self, path, flags):

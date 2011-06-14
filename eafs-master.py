@@ -107,7 +107,8 @@ class EAFSMaster:
 			c.close()
 		self.root_inode_id = 0
 		self.max_chunkservers = 100
-		self.chunksize = 4096
+		#self.chunksize = 4096000
+		self.chunksize = 2048000
 		self.inodetable = {}
 		self.inode_childrens = {}
 		self.chunktable = {}
@@ -124,7 +125,7 @@ class EAFSMaster:
 	def replicator_thread(self):
 		db = sqlite3.connect(self.db_path)
 		while 1:
-			print "Regular replicator thread start"
+			#print "Regular replicator thread start"
 			#print self.dump_metadata()
 			chunks = self.chunktable
 			c = db.cursor()
@@ -133,7 +134,7 @@ class EAFSMaster:
 			for row in c:
 				chunks_to_replicate.append(row[0])
 			#print "%d chunks to replicate" % len(chunks_to_replicate)
-			num = min( 100, len(chunks_to_replicate) )
+			num = min( 500, len(chunks_to_replicate) )
 			num_replicated = 0
 			for i in range( 0, num ):
 				chunk_uuid = chunks_to_replicate[i]
@@ -152,11 +153,12 @@ class EAFSMaster:
 					except:
 						print "error connecting to chunkserver"
 				else:
-					print "no chunk server to replicate %d::%s on %s" % (i, chunk_uuid, src_chunkserver_uuid)
+					pass
+					#print "no chunk server to replicate %d::%s on %s" % (i, chunk_uuid, src_chunkserver_uuid)
 			if num>0:
-				print "%d of %d chunks replicated, total %d left" % (num_replicated, num, len(chunks_to_replicate))
+				print "%d of %d chunks replicated, total %d left" % (num_replicated, num, len(chunks_to_replicate)-num_replicated)
 			#print "Regular replicator thread end"
-			time.sleep( 120 )
+			time.sleep( 20 )
 	
 	
 	def get_chunksize(self):
@@ -354,17 +356,20 @@ class EAFSMaster:
 	
 	def get_chunkuuids_offset(self, filename, size, offset):
 		chunkuuids = self.get_chunkuuids(filename)
-		ratio = math.floor( offset/self.chunksize )
-		num = math.ceil( size/self.chunksize )
-		new_offset = int(offset - (ratio*self.chunksize))
-		start = int(ratio)
-		end = int(ratio+num)
+		start = int(math.floor( offset/self.chunksize ))
+		#if size+offset>self.chunksize:
+		new_offset = int(offset - (start*self.chunksize))
+		num = 1 + math.ceil( (size+new_offset)/self.chunksize )
+		#else:
+		#	num = 1
+		#	new_offset = int(offset)
+		end = int(start+num)
 		if end>=len(chunkuuids):
 			new_chunkuuids = chunkuuids[start:]
 		else:
 			new_chunkuuids = chunkuuids[start:end]
 		#print chunkuuids
-		#print "filename:%s size:%d offset:%d ratio:%d num:%d new_offset:%d end:%d" % (filename,size,offset,ratio,num,new_offset,end)
+		print "filename:%s size:%d offset:%d num:%d new_offset:%d start:%d end:%d" % (filename,size,offset,num,new_offset,start,end)
 		#print new_chunkuuids
 		chunkserver_uuids = {}
 		for chunkuuid in new_chunkuuids:
@@ -404,20 +409,23 @@ class EAFSMaster:
 	def rename(self, filename, new_filename):
 		#print "0 file: " + filename + " renamed to " + new_filename
 		inode = self.get_inode_from_filename( filename )
-		#print "1 file: " + filename + " renamed to " + new_filename
-		attributes = self.inodetable[inode.id]
-		#print "2 file: " + filename + " renamed to " + new_filename
-		chunkuuids = attributes.chunks
-		#print "3 file: " + filename + " renamed to " + new_filename
-		del self.inodetable[inode.id]
-		c = self.db.cursor()
-		c.execute("""delete from inode_chunk where inode_id=?""", (inode.id, ))
-		c.execute("""delete from inode where id=?""", (inode.id, ))
-		self.db.commit()
-		c.close()
-		#print "4 file: " + filename + " renamed to " + new_filename
-		self.save_inodechunktable(new_filename,chunkuuids,attributes)
-		print "file: " + filename + " renamed to " + new_filename
+		if inode:
+			#print "1 file: " + filename + " renamed to " + new_filename
+			attributes = self.inodetable[inode.id]
+			#print "2 file: " + filename + " renamed to " + new_filename
+			chunkuuids = attributes.chunks
+			#print "3 file: " + filename + " renamed to " + new_filename
+			del self.inodetable[inode.id]
+			c = self.db.cursor()
+			c.execute("""delete from inode_chunk where inode_id=?""", (inode.id, ))
+			c.execute("""delete from inode where id=?""", (inode.id, ))
+			self.db.commit()
+			c.close()
+			#print "4 file: " + filename + " renamed to " + new_filename
+			self.save_inodechunktable(new_filename,chunkuuids,attributes)
+			print "file: " + filename + " renamed to " + new_filename
+			return True
+		return False
 	
 	
 	def create_inode(self, filename, inode=None):
@@ -447,7 +455,7 @@ class EAFSMaster:
 	
 	
 	def save_inodechunktable(self, filename, chunkuuids, save_inode=None):
-		#print "save_inodechunktable: %s" % (filename, )
+		print "save_inodechunktable: %s" % (filename, )
 		inode = self.get_inode_from_filename( filename )
 		c = self.db.cursor()
 		c.execute("""PRAGMA synchronous = OFF""")
