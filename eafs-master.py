@@ -16,14 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
-import math,uuid,os,time,operator,argparse
-import threading
+import math,uuid,os,time,operator,argparse,base64,sqlite3,threading
 
 from SimpleXMLRPCServer import SimpleXMLRPCServer
 from SimpleXMLRPCServer import SimpleXMLRPCRequestHandler
 import xmlrpclib
-
-import sqlite3
 
 
 db_filename = "eafs.db"
@@ -479,13 +476,15 @@ class EAFSMaster:
 		parent_inode = self.get_inode_from_filename( filename )
 		if not parent_inode:
 			return file_list
-		print "list_files from %s: %d" % (filename, parent_inode.id)
+		#print "list_files from %s: %d" % (filename, parent_inode.id)
 		if parent_inode.id not in self.inode_childrens:
 			return file_list
 		#print "  LIST:"
 		for inode in self.inode_childrens[parent_inode.id]:
 			#print "    INODE:", inode
-			file_list.append( inode )
+			name = base64.b64encode( inode.name.encode("utf-8") )
+			file_list.append( {'name':name, 'type':inode.type, 'size':inode.size, 'mtime':inode.mtime} )
+			#file_list.append( inode_xml )
 		return file_list
 	
 	

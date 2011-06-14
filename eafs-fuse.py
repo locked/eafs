@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
-import math,uuid,os,time,operator,random,xmlrpclib,argparse,zlib
+import math,uuid,os,time,operator,random,xmlrpclib,argparse,zlib,base64
 
 
 # For FUSE
@@ -76,12 +76,13 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 		now = time.time()
 		#files = ['.','..']
 		for f in fl:
+			filename = base64.b64decode( f['name'] ) #.decode("utf-8")
 			if f['type']=="d":
-				files[f['name']] = dict(st_mode=(S_IFDIR | 0755), st_size=f['size'], st_ctime=now, st_mtime=f['mtime'], st_atime=now, st_nlink=0)
+				files[filename] = dict(st_mode=(S_IFDIR | 0755), st_size=f['size'], st_ctime=now, st_mtime=f['mtime'], st_atime=now, st_nlink=0)
 			else:
-				files[f['name']] = dict(st_mode=(S_IFREG | 0755), st_size=f['size'], st_ctime=now, st_mtime=f['mtime'], st_atime=now, st_nlink=0)
+				files[filename] = dict(st_mode=(S_IFREG | 0755), st_size=f['size'], st_ctime=now, st_mtime=f['mtime'], st_atime=now, st_nlink=0)
 			#files += { f['name']:dict(st_mode=(S_IFREG | 0755), st_size=f['size'], st_ctime=now, st_mtime=f['mtime'], st_atime=now, st_nlink=0) }
-		print "readdir: ", files
+		#print "readdir: ", files
 		return ['.', '..'] + [x[0:] for x in files if x != '/']
 
 	def read(self, path, size, offset, fh):

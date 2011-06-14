@@ -92,7 +92,7 @@ class EAFSClientLib():
 		self.chunk_cache[path] += data
 		if len(self.chunk_cache[path])>=self.chunk_size:
 			self.flush_low( path )
-			self.chunk_cache[path] = self.chunk_cache[path][self.chunk_size:]
+		return len(data)
 	
 	
 	def eafs_write_append(self, path, data):
@@ -104,15 +104,14 @@ class EAFSClientLib():
 		#start = time.time()
 		#append_chunkuuids = self.master.alloc_append(path, num_append_chunks)
 		#if self.debug>0: print "[eafs_write_append] master.alloc_append: ", (time.time()-start)
-		self.accumulate( path, data )
 		#self.write_chunks(append_chunkuuids, data)
-		return len(data)
+		return self.accumulate( path, data )
 	
 	
 	def flush_low(self, path):
 		if path not in self.chunk_cache:
 			return False
-		if len(self.chunk_cache)>self.chunk_size:
+		if len(self.chunk_cache[path])>self.chunk_size:
 			data = self.chunk_cache[path][0:self.chunk_size]
 		else:
 			data = self.chunk_cache[path]
@@ -127,16 +126,23 @@ class EAFSClientLib():
 				chunkuuids = self.master.alloc(path, num_append_chunks, attributes)
 			else:
 				chunkuuids = self.master.alloc_append(path, num_append_chunks)
-			print "Flush Low: append_chunkuuids:%d" % (len(chunkuuids))
+			#print "Flush Low: append_chunkuuids:%d" % (len(chunkuuids))
+			
 			self.write_chunks(chunkuuids, data)
+			
+			if path in self.chunk_cache:
+				self.chunk_cache[path] = self.chunk_cache[path][self.chunk_size:]
+			else:
+				return 0
 		return True
 	
 	def exists(self, path):
 		return self.master.exists(path)
 	
 	def eafs_flush(self, path):
-		if self.flush_low( path ):
-			del self.chunk_cache[path]
+		#print "** FUSE called flush( %s ) **" % path
+		self.flush_low( path )
+		#del self.chunk_cache[path]
 		return True
 	
 	def eafs_write(self, path, data): #, attributes
