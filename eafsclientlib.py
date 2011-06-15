@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
-import math,uuid,os,time,operator,random,xmlrpclib,argparse,zlib
+import math,uuid,os,time,operator,random,xmlrpclib,argparse,zlib,threading
 
 
 class EAFSChunkServerRpc:
@@ -35,18 +35,19 @@ class EAFSClientLib():
 		self.chunkservers = {}
 		self.chunk_cache = {}
 		self.chunk_cache_read = {}
+		self.chunk_cache_read_wait = {}
 		self.fd = 0
-		self.cache_counter = 0
+		#self.cache_counter = 0
 	
 	def update_chunkservers(self):
-		self.cache_counter -= 1
-		if self.cache_counter<=0:
-			self.cache_counter = 100
-			chunkservers = self.master.get_chunkservers()
-			for chunkserver in chunkservers:
-				if chunkserver['uuid'] not in self.chunkservers:
-					print "ADD CHUNKSERVER: ", chunkserver['uuid'], chunkserver['address']
-					self.chunkservers[chunkserver['uuid']] = EAFSChunkServerRpc( chunkserver['uuid'], chunkserver['address'] )
+		#self.cache_counter -= 1
+		#if self.cache_counter<=0:
+		#	self.cache_counter = 100
+		chunkservers = self.master.get_chunkservers()
+		for chunkserver in chunkservers:
+			if chunkserver['uuid'] not in self.chunkservers:
+				print "ADD CHUNKSERVER: ", chunkserver['uuid'], chunkserver['address']
+				self.chunkservers[chunkserver['uuid']] = EAFSChunkServerRpc( chunkserver['uuid'], chunkserver['address'] )
 	
 	def write_chunks(self, chunkuuids, data):
 		chunks = [ data[x:x+self.chunk_size] \
@@ -162,7 +163,7 @@ class EAFSClientLib():
 			raise Exception("read error, file does not exist: " + path)
 		#if self.debug>1: print "eafs_read path: [%s] size:%d offset:%d" % (path, size, offset)
 		#print "eafs_read: ", path, size, offset
-		(chunkuuids, offset, chunkserver_uuids) = self.master.get_chunkuuids_offset(path,size,offset)
+		(chunkuuids, offset, chunkserver_uuids, next_chunkuuid) = self.master.get_chunkuuids_offset(path,size,offset)
 		#print "eafs_read chunkserver_uuids: ", chunkserver_uuids
 		#if self.debug>2:
 		#print "eafs_read chunkuuids: ", chunkuuids
@@ -172,45 +173,69 @@ class EAFSClientLib():
 			#if self.debug>3: 
 			#print "eafs_read chunkuuid: ", chunkuuid
 			#chunklocs = self.master.get_chunklocs()
-			if chunkuuid in self.chunk_cache_read:
+			if chunkuuid in self.chunk_cache_read or chunkuuid in self.chunk_cache_read_wait:
+				if chunkuuid in self.chunk_cache_read_wait:
+					while self.chunk_cache_read_wait[chunkuuid]:
+						time.sleep(1.0/1000.0)
 				chunk = self.chunk_cache_read[chunkuuid]
-				chunk_read = True
 				#print "eafs_read chunkuuid:%s chunk:%d " % (chunkuuid, len(chunk))
 			else:
-				chunk = None
-				chunk_read = False
-				chunklocs = chunkserver_uuids[chunkuuid]
-				done_chunkserver = []
-				while not (chunk_read or len(done_chunkserver)==len(chunklocs)):
-					chunkidrnd = random.randint(0, len(chunklocs)-1)
-					#print "Random: ", chunkidrnd, done_chunkserver, chunklocs
-					if len(done_chunkserver)>0:
-						while chunkidrnd in done_chunkserver:
-							chunkidrnd = random.randint(0, len(chunklocs)-1)
-							#print "Random2: ", chunkidrnd, done_chunkserver, chunklocs
-					chunkloc = chunklocs[chunkidrnd]
-					done_chunkserver.append(chunkidrnd)
-					#if self.debug>2: 
-					#print "Select chunkloc %d::%s from %d choices" % (chunkidrnd, chunkloc, len(chunklocs))
-					try:
-						# Read from chunkserver
-						chunk_raw = self.chunkservers[chunkloc].rpc.read(chunkuuid)
-						chunk = zlib.decompress(chunk_raw.data)
-						#print "Read: ", chunkuuid, len(chunk)
-						
-						# Add to read cache
-						self.chunk_cache_read[chunkuuid] = chunk
-						
-						chunk_read = True
-					except:
-						print "Chunkserver %d failed %d remaining" % (chunkidrnd, len(chunklocs)-len(done_chunkserver))
-			if not chunk_read:
+				chunk = self.get_chunk( chunkuuid, chunkserver_uuids )
+			if chunk is None:
 				raise Exception("read error, chunkserver unavailable: " + path)
 			chunks.append(chunk)
 		if len(chunks)==0:
 			return None
 		data = reduce(lambda x, y: x + y, chunks) # reassemble in order
 		data = data[offset:offset+size]
+		
+		
+		# Threading works but only for relatively slow media like video,
+		# for copy it is desastrous
+		if next_chunkuuid is not None and next_chunkuuid not in self.chunk_cache_read and next_chunkuuid not in self.chunk_cache_read_wait:
+			self.chunk_cache_read_wait[next_chunkuuid] = True
+			get_chunk_thread = threading.Thread(None, self.get_chunk_thread, args=(next_chunkuuid, ))
+			get_chunk_thread.daemon = True
+			get_chunk_thread.start()
+		
+		
 		#print "eafs_read size:%d offset:%d data:%d chunk:%d " % (size, offset, len(data), len(chunk))
 		return data
-
+	
+	
+	def get_chunk(self, chunkuuid, chunkserver_uuids):
+		chunklocs = chunkserver_uuids[chunkuuid]
+		done_chunkserver = []
+		chunk = None
+		#chunk_read = False
+		while not ((chunk is not None) or (len(done_chunkserver)==len(chunklocs))):
+			chunkidrnd = random.randint(0, len(chunklocs)-1)
+			#print "Random: ", chunkidrnd, done_chunkserver, chunklocs
+			if len(done_chunkserver)>0:
+				while chunkidrnd in done_chunkserver:
+					chunkidrnd = random.randint(0, len(chunklocs)-1)
+					#print "Random2: ", chunkidrnd, done_chunkserver, chunklocs
+			chunkloc = chunklocs[chunkidrnd]
+			done_chunkserver.append(chunkidrnd)
+			#if self.debug>2: 
+			#print "Select chunkloc %d::%s from %d choices" % (chunkidrnd, chunkloc, len(chunklocs))
+			try:
+				# Read from chunkserver
+				chunk_raw = self.chunkservers[chunkloc].rpc.read(chunkuuid)
+				chunk = zlib.decompress(chunk_raw.data)
+				#print "Read: ", chunkuuid, len(chunk)
+				
+				# Add to read cache
+				self.chunk_cache_read[chunkuuid] = chunk
+				
+				#chunk_read = True
+			except:
+				print "Chunkserver %d failed %d remaining" % (chunkidrnd, len(chunklocs)-len(done_chunkserver))
+		return chunk
+	
+	
+	def get_chunk_thread(self, chunkuuid):
+		#print "get_chunk_thread: %s" % chunkuuid
+		chunkserver_uuids = {chunkuuid: self.master.get_chunklocs(chunkuuid)}
+		self.get_chunk( chunkuuid, chunkserver_uuids )
+		self.chunk_cache_read_wait[chunkuuid] = False

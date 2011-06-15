@@ -66,7 +66,8 @@ class EAFSChunkserver:
 	def write(self, chunkuuid, chunk):
 		local_filename = self.chunk_filename(chunkuuid)
 		with open(local_filename, "w") as f:
-			f.write(zlib.decompress(chunk.data))
+			f.write(chunk.data)
+			#f.write(zlib.decompress(chunk.data))
 		self.chunktable[chunkuuid] = local_filename
 		#print "chunkserver_has_chunk: ", self.uuid, chunkuuid
 		#print "chunkserver_has_chunk: DONE"
@@ -82,7 +83,8 @@ class EAFSChunkserver:
 		local_filename = self.chunk_filename(chunkuuid)
 		with open(local_filename, "r") as f:
 			data = f.read()
-		return xmlrpclib.Binary(zlib.compress(data))
+		return xmlrpclib.Binary(data)
+		#return xmlrpclib.Binary(zlib.compress(data))
 	
 	def replicate(self, chunkuuid, chunkserver_uuid, chunkserver_address):
 		chunkserver = EAFSChunkServerRpc( chunkserver_uuid, chunkserver_address )
@@ -99,7 +101,7 @@ class EAFSChunkserver:
 		return (size_total, size_available)
 	
 	def chunk_filename(self, chunkuuid):
-		return os.path.join( self.local_filesystem_root, str(chunkuuid) ) + '.gfs'
+		return os.path.join( self.local_filesystem_root, str(chunkuuid) ) + '.eafs'
 
 
 class RequestHandler(SimpleXMLRPCRequestHandler):

@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
-import math,uuid,os,time,operator,argparse,base64,sqlite3,threading
+import math,uuid,os,time,operator,argparse,base64,sqlite3,threading,apsw
 
 from SimpleXMLRPCServer import SimpleXMLRPCServer
 from SimpleXMLRPCServer import SimpleXMLRPCRequestHandler
@@ -88,30 +88,37 @@ class EAFSMaster:
 			os.makedirs(rootfs)
 		# Connect to DB
 		self.db_path = os.path.join(rootfs,db_filename)
-		self.db = sqlite3.connect(self.db_path)
+		#self.db = sqlite3.connect(self.db_path)
+		self.db = apsw.Connection(self.db_path)
+		self.db.setbusytimeout(500)
 		if init==1:
 			# Init DB
 			c = self.db.cursor()
 			try:
+				c.execute("begin")
 				c.execute('DROP TABLE IF EXISTS inode')
 				c.execute('DROP TABLE IF EXISTS chunk')
 				c.execute('DROP TABLE IF EXISTS inode_chunk')
 				c.execute('DROP TABLE IF EXISTS server')
 				c.execute('DROP TABLE IF EXISTS chunk_server')
-				self.db.commit()
+				#self.db.commit()
+				c.execute("commit")
 			except:
 				pass
+			c.execute("begin")
 			c.execute('CREATE TABLE inode (id INTEGER PRIMARY KEY AUTOINCREMENT, parent INTEGER, name text, type char(1), perms text, uid int, gid int, attrs text, ctime text, mtime text, atime text, links int, size int, UNIQUE(parent, name))')
-			c.execute('CREATE TABLE chunk (uuid text, PRIMARY KEY(uuid))')
+			c.execute('CREATE TABLE chunk (uuid text, alloc_time TIMESTAMP, PRIMARY KEY(uuid))')
 			c.execute('CREATE TABLE inode_chunk (inode_id INTEGER, chunk_uuid text, UNIQUE(inode_id,chunk_uuid))')
 			c.execute('CREATE TABLE server (uuid text, address text, available INTEGER, last_seen DATETIME, size_total INTEGER, size_available INTEGER, PRIMARY KEY(uuid))')
 			c.execute('CREATE TABLE chunk_server (chunk_uuid text, server_uuid text, UNIQUE(chunk_uuid,server_uuid))')
-			self.db.commit()
+			#self.db.commit()
+			c.execute("commit")
 			c.close()
 		self.root_inode_id = 0
 		self.max_chunkservers = 100
 		#self.chunksize = 4096000
 		self.chunksize = 2048000
+		self.replication_level = 2
 		self.inodetable = {}
 		self.inode_childrens = {}
 		self.chunktable = {}
@@ -126,42 +133,14 @@ class EAFSMaster:
 	
 	
 	def replicator_thread(self):
-		db = sqlite3.connect(self.db_path)
+		#db = sqlite3.connect(self.db_path)
+		db = apsw.Connection(self.db_path)
+		db.setbusytimeout(500)
 		while 1:
 			#print "Regular replicator thread start"
 			#print self.dump_metadata()
-			chunks = self.chunktable
-			c = db.cursor()
-			c.execute('select chunk_uuid, count(*) as c from chunk_server group by chunk_uuid having c<=1')
-			chunks_to_replicate = []
-			for row in c:
-				chunks_to_replicate.append(row[0])
-			#print "%d chunks to replicate" % len(chunks_to_replicate)
-			num = min( 500, len(chunks_to_replicate) )
-			num_replicated = 0
-			for i in range( 0, num ):
-				chunk_uuid = chunks_to_replicate[i]
-				src_chunkserver_uuids = self.get_chunklocs( chunk_uuid )
-				src_chunkserver_uuid = src_chunkserver_uuids[0]
-				dest_chunkserver_uuid = None
-				for chunkserver_uuid in self.chunkservers:
-					if chunkserver_uuid<>src_chunkserver_uuid:
-						dest_chunkserver_uuid = chunkserver_uuid
-				if dest_chunkserver_uuid is not None:
-					src_chunkserver_address = self.chunkservers[src_chunkserver_uuid].address
-					#print "replicate chunk %d::%s on %s(%s) to %s" % (i, chunk_uuid, src_chunkserver_uuid, src_chunkserver_address, dest_chunkserver_uuid)
-					try:
-						self.chunkservers[dest_chunkserver_uuid].rpc.replicate( chunk_uuid, src_chunkserver_uuid, src_chunkserver_address )
-						num_replicated += 1
-					except:
-						print "error connecting to chunkserver"
-				else:
-					pass
-					#print "no chunk server to replicate %d::%s on %s" % (i, chunk_uuid, src_chunkserver_uuid)
-			if num>0:
-				print "%d of %d chunks replicated, total %d left" % (num_replicated, num, len(chunks_to_replicate)-num_replicated)
-			
 			# Check chunkservers
+			c = db.cursor()
 			chunkservers = self.chunkservers
 			for chunkserver_uuid in chunkservers:
 				chunkserver = chunkservers[chunkserver_uuid]
@@ -176,11 +155,61 @@ class EAFSMaster:
 					chunkserver.available = 0
 					#print "Chunkserver _not_ responding: ", chunkserver.uuid
 				#	c.execute("""update server set available=0 where uuid=?""", (chunkserver.uuid, ))
+				#db = sqlite3.connect(self.db_path)
+				c.execute("begin")
 				c.execute("""update server set last_seen=?, available=?, size_total=?, size_available=? where uuid=?""", (chunkserver.last_seen, chunkserver.available, chunkserver.size_total, chunkserver.size_available, chunkserver.uuid))
-			db.commit()
+				#db.commit()
+				c.execute("commit")
+				#c.close()
+			
+			# Check chunks
+			chunks = self.chunktable
+			c.execute('select chunk_uuid, alloc_time, count(*) as c from chunk_server left join chunk on (chunk.uuid=chunk_server.chunk_uuid) left join server on (server.uuid=chunk_server.server_uuid) where available=1 group by chunk_uuid, alloc_time having c<=1')
+			chunks_to_replicate = []
+			for row in c:
+				alloc_time = row[1]
+				if alloc_time is not None:
+					time_diff = time.time()-alloc_time
+					#print "Chunk time_diff:%d" % (time_diff)
+					if time_diff>600:
+						chunks_to_replicate.append(row[0])
+			#c.close()
+			#print "%d chunks to replicate" % len(chunks_to_replicate)
+			num = min( 10, len(chunks_to_replicate) )
+			num_replicated = 0
+			for i in range( 0, num ):
+				chunk_uuid = chunks_to_replicate[i]
+				src_chunkserver_uuids = self.get_chunklocs( chunk_uuid )
+				chunk_replicated = False
+				src_chunkserver_id = 0
+				while not chunk_replicated and src_chunkserver_id<len(src_chunkserver_uuids):
+					src_chunkserver_uuid = src_chunkserver_uuids[src_chunkserver_id]
+					if self.chunkservers[src_chunkserver_uuid].available==1:
+						dest_chunkserver_uuid = None
+						for chunkserver_uuid in self.chunkservers:
+							if chunkserver_uuid<>src_chunkserver_uuid and self.chunkservers[chunkserver_uuid].available==1:
+								dest_chunkserver_uuid = chunkserver_uuid
+								break
+						if dest_chunkserver_uuid is not None:
+							src_chunkserver_address = self.chunkservers[src_chunkserver_uuid].address
+							#print "replicate chunk %d::%s on %s(%s) to %s" % (i, chunk_uuid, src_chunkserver_uuid, src_chunkserver_address, dest_chunkserver_uuid)
+							#try:
+							if True:
+								self.chunkservers[dest_chunkserver_uuid].rpc.replicate( chunk_uuid, src_chunkserver_uuid, src_chunkserver_address )
+								num_replicated += 1
+								chunk_replicated = True
+							#except:
+							#	print "error connecting to chunkserver: ", dest_chunkserver_uuid
+						else:
+							pass
+							#print "no chunk server to replicate %d::%s on %s" % (i, chunk_uuid, src_chunkserver_uuid)
+					src_chunkserver_id += 1
+			if num_replicated>0:
+				print "%d of %d chunks replicated, total %d left" % (num_replicated, num, len(chunks_to_replicate)-num_replicated)
 			
 			#print "Regular replicator thread end"
-			time.sleep( 20 )
+			c.close()
+			time.sleep( 30 )
 	
 	
 	def get_chunksize(self):
@@ -249,8 +278,10 @@ class EAFSMaster:
 		if chunkserver_uuid not in self.chunkservers:
 			self.chunkservers[chunkserver_uuid] = EAFSChunkServerRpc(chunkserver_uuid, chunkserver_address)
 			c = self.db.cursor()
+			c.execute("begin")
 			c.execute("""insert into server (uuid, address) values (?,?)""", (chunkserver_uuid, chunkserver_address))
-			self.db.commit()
+			#self.db.commit()
+			c.execute("commit")
 			c.close()
 		return chunkserver_uuid
 	
@@ -265,7 +296,10 @@ class EAFSMaster:
 	def choose_chunkserver_uuids(self):
 		uuids = []
 		for i in self.chunkservers:
-			uuids.append( self.chunkservers[i].uuid )
+			if self.chunkservers[i].available==1:
+				uuids.append( self.chunkservers[i].uuid )
+			if len(uuids)>=self.replication_level:
+				break
 		return uuids
 	
 	
@@ -293,6 +327,7 @@ class EAFSMaster:
 			self.chunktable[chunk_uuid] = []
 		c = self.db.cursor()
 		c.execute("""PRAGMA synchronous = OFF""")
+		c.execute("begin")
 		for chunkserver_uuid in chunkserver_uuids:
 			#i = None
 			#for i in self.chunktable[chunk_uuid]:
@@ -303,7 +338,8 @@ class EAFSMaster:
 			if chunkserver_uuid not in self.chunktable[chunk_uuid]:
 				self.chunktable[chunk_uuid].append( chunkserver_uuid )
 				c.execute("""insert into chunk_server values (?, ?)""", (chunk_uuid, chunkserver_uuid))
-		self.db.commit()
+		#self.db.commit()
+		c.execute("commit")
 	
 	
 	def alloc_chunks(self, num_chunks):
@@ -311,12 +347,13 @@ class EAFSMaster:
 		start = time.time()
 		c = self.db.cursor()
 		c.execute("""PRAGMA synchronous = OFF""")
+		c.execute("begin")
 		for i in range(0, num_chunks):
 			# Generate UUID
 			chunk_uuid = str(uuid.uuid1())
 			# Insert new chunk
 			chunkuuids.append(chunk_uuid)
-			c.execute("""insert into chunk values (?)""", (chunk_uuid, ))
+			c.execute("""insert into chunk values (?,?)""", (chunk_uuid, time.time()))
 			chunkserver_uuids = self.choose_chunkserver_uuids()
 			# Insert chunk/chunkserver relation
 			# No: this is the chunkserver job
@@ -325,7 +362,8 @@ class EAFSMaster:
 			#	c.execute("""insert into chunk_server values (?, ?)""", (chunk_uuid, chunkserver_uuid))
 			#self.alloc_chunks_to_chunkservers( chunk_uuid, chunkserver_uuids )
 		start_sql = time.time()
-		self.db.commit()
+		#self.db.commit()
+		c.execute("commit")
 		if self.debug>0: print "[alloc_chunks] sql commit: ", (time.time()-start_sql)
 		c.close()
 		if self.debug>0: print "[alloc_chunks] total: ", len(chunkuuids), (time.time()-start)
@@ -395,13 +433,16 @@ class EAFSMaster:
 			new_chunkuuids = chunkuuids[start:]
 		else:
 			new_chunkuuids = chunkuuids[start:end]
+		next_chunkuuid = None
+		if end+1<len(chunkuuids):
+			next_chunkuuid = chunkuuids[end+1]
 		#print chunkuuids
 		#print "filename:%s size:%d offset:%d num:%d new_offset:%d start:%d end:%d" % (filename,size,offset,num,new_offset,start,end)
 		#print new_chunkuuids
 		chunkserver_uuids = {}
 		for chunkuuid in new_chunkuuids:
 			chunkserver_uuids[chunkuuid] = self.get_chunklocs(chunkuuid)
-		return (new_chunkuuids, new_offset, chunkserver_uuids)
+		return (new_chunkuuids, new_offset, chunkserver_uuids, next_chunkuuid)
 	
 	
 	def get_chunkuuids(self, filename):
@@ -429,6 +470,7 @@ class EAFSMaster:
 		inode = self.get_inode_from_filename( filename )
 		if inode:
 			c = self.db.cursor()
+			c.execute("begin")
 			chunkuuids = self.inodetable[inode.id].chunks
 			for chunkuuid in chunkuuids:
 				c.execute("""delete from chunk where uuid=?""", (chunkuuid, ))
@@ -436,7 +478,8 @@ class EAFSMaster:
 			del self.inodetable[inode.id]
 			c.execute("""delete from inode_chunk where inode_id=?""", (inode.id, ))
 			c.execute("""delete from inode where id=?""", (inode.id, ))
-			self.db.commit()
+			#self.db.commit()
+			c.execute("commit")
 			c.close()
 		return True
 	
@@ -452,9 +495,11 @@ class EAFSMaster:
 			#print "3 file: " + filename + " renamed to " + new_filename
 			del self.inodetable[inode.id]
 			c = self.db.cursor()
+			c.execute("begin")
 			c.execute("""delete from inode_chunk where inode_id=?""", (inode.id, ))
 			c.execute("""delete from inode where id=?""", (inode.id, ))
-			self.db.commit()
+			c.execute("commit")
+			#self.db.commit()
 			c.close()
 			#print "4 file: " + filename + " renamed to " + new_filename
 			self.save_inodechunktable(new_filename,chunkuuids,attributes)
@@ -476,9 +521,11 @@ class EAFSMaster:
 				return False
 			parent_inode_id = parent_inode.id
 		c = self.db.cursor()
+		c.execute("begin")
 		c.execute("""insert into inode (parent,name,type,perms,uid,gid,attrs,ctime,mtime,atime,links,size) values (?,?,?,?,?,?,?,?,?,?,?,?)""", (parent_inode_id, create_filename, inode.type, "755", 0, 0, inode.attrs, inode.ctime, inode.mtime, inode.atime, 0, inode.size))
 		#print "Create: ", "insert into inode (parent,name,type,perms,uid,gid,attrs,ctime,mtime,atime,links) values (%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)" % (parent_inode_id, create_filename, attributes["type"], "wrxwrxwrx", 0, 0, attributes["attrs"], attributes["ctime"], attributes["mtime"], attributes["atime"], 0)
-		self.db.commit()
+		c.execute("commit")
+		#self.db.commit()
 		c.close()
 		inode = self.get_inode_from_filename( filename )
 		if inode:
@@ -490,7 +537,7 @@ class EAFSMaster:
 	
 	
 	def save_inodechunktable(self, filename, chunkuuids, save_inode=None):
-		print "save_inodechunktable: %s" % (filename, )
+		#print "save_inodechunktable: %s" % (filename, )
 		inode = self.get_inode_from_filename( filename )
 		c = self.db.cursor()
 		c.execute("""PRAGMA synchronous = OFF""")
@@ -502,10 +549,12 @@ class EAFSMaster:
 				return False
 		self.inodetable[inode.id].chunks.extend( chunkuuids )
 		#print "Save %d chunks for node %d" % (len(self.inodetable[inode.id].chunks), inode.id)
+		c.execute("begin")
 		for chunkuuid in chunkuuids:
 			if self.debug>3: print "insert into inode_chunk values (%s, %s)" % (inode.id, chunkuuid)
 			c.execute("""insert into inode_chunk values (?,?)""", (inode.id, chunkuuid))
-		self.db.commit()
+		c.execute("commit")
+		#self.db.commit()
 		c.close()
 	
 	
@@ -538,13 +587,15 @@ class EAFSMaster:
 	def file_set_attr(self, filename, attr, val, op):
 		inode = self.get_inode_from_filename( filename )
 		c = self.db.cursor()
+		c.execute("begin")
 		if inode:
 			if attr=='size':
 				if op=='add':
 					#print "file_set_attr: add new size: ", val
 					self.inodetable[inode.id].size+= val
 					c.execute("""update inode set size=? where id=?""", (inode.size, inode.id))
-		self.db.commit()
+		#self.db.commit()
+		c.execute("commit")
 		c.close()
 	
 	
