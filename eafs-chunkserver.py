@@ -57,26 +57,23 @@ class EAFSChunkserver:
 			f = open(self.uuid_filename_full, 'w+')
 			f.write(self.uuid)
 			f.close()
-		self.chunktable = {}
+		#self.chunktable = {}
 		self.local_filesystem_root = os.path.join( rootfs, "chunks", str(self.uuid) ) #repr
 		#print "FS ROOT: %s" % self.local_filesystem_root
 		if not os.access(self.local_filesystem_root, os.W_OK):
 			os.makedirs(self.local_filesystem_root)
+	
 	
 	def write(self, chunkuuid, chunk):
 		local_filename = self.chunk_filename(chunkuuid)
 		with open(local_filename, "w") as f:
 			f.write(chunk.data)
 			#f.write(zlib.decompress(chunk.data))
-		self.chunktable[chunkuuid] = local_filename
+		#self.chunktable[chunkuuid] = local_filename
 		#print "chunkserver_has_chunk: ", self.uuid, chunkuuid
-		#print "chunkserver_has_chunk: DONE"
 		self.master.chunkserver_has_chunk( self.uuid, chunkuuid )
-	#	thread = threading.Thread(target=self.commit_thread, args=(self.uuid, chunkuuid))
-	#	thread.start()
-	#
-	#def commit_thread(self, uuid, chunkuuid):
-	#	self.master.chunkserver_has_chunk( uuid, chunkuuid )
+		return len(chunk.data)
+	
 	
 	def read(self, chunkuuid):
 		data = None
@@ -86,13 +83,12 @@ class EAFSChunkserver:
 		return xmlrpclib.Binary(data)
 		#return xmlrpclib.Binary(zlib.compress(data))
 	
+	
 	def replicate(self, chunkuuid, chunkserver_uuid, chunkserver_address):
 		chunkserver = EAFSChunkServerRpc( chunkserver_uuid, chunkserver_address )
-		#print chunkuuid
 		chunk = chunkserver.rpc.read( chunkuuid )
-		#print chunk
 		self.write( chunkuuid, chunk )
-		#self.master.chunkserver_has_chunk( self.uuid, chunkuuid )
+	
 	
 	def stat(self):
 		f = os.statvfs(self.rootfs)
@@ -100,8 +96,10 @@ class EAFSChunkserver:
 		size_available = int( f[statvfs.F_BAVAIL] * f[statvfs.F_FRSIZE] / 1024 )
 		return (size_total, size_available)
 	
+	
 	def chunk_filename(self, chunkuuid):
 		return os.path.join( self.local_filesystem_root, str(chunkuuid) ) + '.eafs'
+
 
 
 class RequestHandler(SimpleXMLRPCRequestHandler):

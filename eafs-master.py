@@ -289,7 +289,8 @@ class EAFSMaster:
 	def get_chunkservers(self):
 		srvs = []
 		for i in self.chunkservers:
-			srvs.append( {"uuid":self.chunkservers[i].uuid, "address":self.chunkservers[i].address} )
+			if self.chunkservers[i].available==1:
+				srvs.append( {"uuid":self.chunkservers[i].uuid, "address":self.chunkservers[i].address} )
 		return srvs
 	
 	
@@ -308,12 +309,10 @@ class EAFSMaster:
 	
 	
 	def chunkserver_has_chunk(self, chunkserver_uuid, chunk_uuid):
-		#if chunkserver_uuid not in self.chunktable[chunk_uuid]:
-		#	self.chunktable[chunk_uuid].append( chunkserver_uuid )
 		return self.alloc_chunks_to_chunkservers( chunk_uuid, [chunkserver_uuid] )
 	
 	
-	def alloc(self, filename, num_chunks, attributes): # return ordered chunkuuid list
+	def alloc(self, filename, num_chunks, attributes):
 		chunkuuids = self.alloc_chunks(num_chunks)
 		inode = EAFSInode(attributes)
 		inode.name = os.path.basename( filename )
@@ -322,18 +321,12 @@ class EAFSMaster:
 	
 	
 	def alloc_chunks_to_chunkservers(self, chunk_uuid, chunkserver_uuids):
-		#self.chunktable[chunk_uuid] = chunkserver_uuids
 		if chunk_uuid not in self.chunktable:
 			self.chunktable[chunk_uuid] = []
 		c = self.db.cursor()
 		c.execute("""PRAGMA synchronous = OFF""")
 		c.execute("begin")
 		for chunkserver_uuid in chunkserver_uuids:
-			#i = None
-			#for i in self.chunktable[chunk_uuid]:
-			#	if i==chunkserver_uuids:
-			#		break
-			#if i<>chunkserver_uuids:
 			#print "alloc_chunks_to_chunkservers: ", chunk_uuid, chunkserver_uuid
 			if chunkserver_uuid not in self.chunktable[chunk_uuid]:
 				self.chunktable[chunk_uuid].append( chunkserver_uuid )
@@ -357,10 +350,6 @@ class EAFSMaster:
 			chunkserver_uuids = self.choose_chunkserver_uuids()
 			# Insert chunk/chunkserver relation
 			# No: this is the chunkserver job
-			#self.chunktable[chunk_uuid] = chunkserver_uuids
-			#for chunkserver_uuid in chunkserver_uuids:
-			#	c.execute("""insert into chunk_server values (?, ?)""", (chunk_uuid, chunkserver_uuid))
-			#self.alloc_chunks_to_chunkservers( chunk_uuid, chunkserver_uuids )
 		start_sql = time.time()
 		#self.db.commit()
 		c.execute("commit")
@@ -373,14 +362,12 @@ class EAFSMaster:
 	def alloc_append(self, filename, num_append_chunks):
 		chunkuuids = self.get_chunkuuids(filename)
 		append_chunkuuids = self.alloc_chunks(num_append_chunks)
-		#chunkuuids.extend(append_chunkuuids)
 		self.save_inodechunktable(filename, append_chunkuuids)
 		return append_chunkuuids
 	
 	
 	def get_parent_inode_from_filename( self, filename ):
 		dirname = os.path.dirname( filename )
-		#print "  Dirname of %s: %s" % (filename, dirname)
 		return self.get_inode_from_filename( dirname )
 	
 	
@@ -393,7 +380,6 @@ class EAFSMaster:
 		else:
 			parent_inode_id = self.root_inode_id
 		curpath = ""
-		#print fs
 		for fn in fs:
 			#print "  Lookup inode: ", parent_inode_id, fn
 			c.execute("""select * from inode where parent=? and name=?""", (parent_inode_id, fn) )
@@ -422,12 +408,8 @@ class EAFSMaster:
 	def get_chunkuuids_offset(self, filename, size, offset):
 		chunkuuids = self.get_chunkuuids(filename)
 		start = int(math.floor( offset/self.chunksize ))
-		#if size+offset>self.chunksize:
 		new_offset = int(offset - (start*self.chunksize))
 		num = 1 + math.ceil( (size+new_offset)/self.chunksize )
-		#else:
-		#	num = 1
-		#	new_offset = int(offset)
 		end = int(start+num)
 		if end>=len(chunkuuids):
 			new_chunkuuids = chunkuuids[start:]
@@ -488,11 +470,8 @@ class EAFSMaster:
 		#print "0 file: " + filename + " renamed to " + new_filename
 		inode = self.get_inode_from_filename( filename )
 		if inode:
-			#print "1 file: " + filename + " renamed to " + new_filename
 			attributes = self.inodetable[inode.id]
-			#print "2 file: " + filename + " renamed to " + new_filename
 			chunkuuids = attributes.chunks
-			#print "3 file: " + filename + " renamed to " + new_filename
 			del self.inodetable[inode.id]
 			c = self.db.cursor()
 			c.execute("begin")
@@ -501,7 +480,6 @@ class EAFSMaster:
 			c.execute("commit")
 			#self.db.commit()
 			c.close()
-			#print "4 file: " + filename + " renamed to " + new_filename
 			self.save_inodechunktable(new_filename,chunkuuids,attributes)
 			print "file: " + filename + " renamed to " + new_filename
 			return True
@@ -571,15 +549,12 @@ class EAFSMaster:
 			#print "    INODE:", inode
 			name = base64.b64encode( inode.name.encode("utf-8") )
 			file_list.append( {'name':name, 'type':inode.type, 'size':inode.size, 'mtime':inode.mtime} )
-			#file_list.append( inode_xml )
 		return file_list
 	
 	
 	def file_attr(self, filename):
 		inode = self.get_inode_from_filename( filename )
 		if inode:
-			#inode.size = len(inode.chunks) * self.chunksize
-			#print "Inode: %d Size: %d Chunks: %d ChunkSize:%d" % (inode.id, inode.size, len(inode.chunks), self.chunksize)
 			return inode
 		return None
 	
@@ -609,11 +584,6 @@ class EAFSMaster:
 		for inode_id, attributes in self.inodetable.items():
 			metadata += "%d with %d chunks\n" % (inode_id, len(attributes.chunks))
 		metadata += "Chunkservers: %d\n" % (len(self.chunkservers))
-		#metadata += "Chunkserver Data:\n"
-		#for chunkuuid, chunklocs in sorted(self.chunktable.iteritems(), key=operator.itemgetter(1)):
-		#    for chunkloc in chunklocs:
-		#        chunk = self.chunkservers[chunkloc].rpc.read(chunkuuid)
-		#        metadata += "%s, %s\n" % (chunkloc, chunkuuid)
 		return metadata
 
 

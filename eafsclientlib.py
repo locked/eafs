@@ -28,7 +28,6 @@ class EAFSChunkServerRpc:
 
 class EAFSClientLib():
 	def __init__(self, master_host, debug=0):
-		#print "host: ", master_host
 		self.debug = debug
 		self.master = xmlrpclib.ServerProxy(master_host)
 		self.chunk_size = self.master.get_chunksize()
@@ -38,6 +37,7 @@ class EAFSClientLib():
 		self.chunk_cache_read_wait = {}
 		self.fd = 0
 		#self.cache_counter = 0
+	
 	
 	def update_chunkservers(self):
 		#self.cache_counter -= 1
@@ -49,6 +49,7 @@ class EAFSClientLib():
 				print "ADD CHUNKSERVER: ", chunkserver['uuid'], chunkserver['address']
 				self.chunkservers[chunkserver['uuid']] = EAFSChunkServerRpc( chunkserver['uuid'], chunkserver['address'] )
 	
+	
 	def write_chunks(self, chunkuuids, data):
 		chunks = [ data[x:x+self.chunk_size] \
 			for x in range(0, len(data), self.chunk_size) ]
@@ -59,24 +60,26 @@ class EAFSClientLib():
 		#start_total = time.time()
 		for i in range(0, len(chunkuuids)): # write to each chunkserver
 			chunkuuid = chunkuuids[i]
-			chunklocs = self.master.choose_chunkserver_uuids()
-			#self.master.get_chunklocs(chunkuuid)
-			#print "chunklocs: ", chunklocs
+			chunkserver_uuids = self.master.choose_chunkserver_uuids()
 			chunkserver_writes = 0
-			for chunkloc in chunklocs:
-				if chunkloc in self.chunkservers:
-					#print "chunkloc: ", chunkloc
+			for chunkserver_uuid in chunkserver_uuids:
+				if chunkserver_uuid in self.chunkservers:
+					#print "chunkserver_uuid: ", chunkserver_uuid
 					#if self.debug>3: print "Chunk size: ", i, len(chunks[i])
-					#try:
-					if True:
+					try:
+						#if True:
 						#start = time.time()
-						self.chunkservers[chunkloc].rpc.write(chunkuuid, xmlrpclib.Binary(zlib.compress(chunks[i])))
+						write_data = zlib.compress(chunks[i])
+						write_data_len = int(self.chunkservers[chunkserver_uuid].rpc.write(chunkuuid, xmlrpclib.Binary(write_data)))
 						#if self.debug>1: print "[write_chunks] rpc.write: ", (time.time()-start)
-						chunkserver_writes += 1
-					#except:
-					#	print "Chunkserver %s failed" % chunkloc
-					#	if chunkloc in self.chunkservers:
-					#		del self.chunkservers[chunkloc]
+						if write_data_len==len(write_data):
+							chunkserver_writes += 1
+						else:
+							print "Write on chunkserver %s failed (%d/%d)" % (chunkserver_uuid, write_data_len, len(write_data))
+					except:
+						print "Chunkserver %s failed" % chunkserver_uuid
+						if chunkserver_uuid in self.chunkservers:
+							del self.chunkservers[chunkserver_uuid]
 			if chunkserver_writes==0:
 				raise Exception("write_chunks error, not enough chunkserver available")
 		#if self.debug>0: print "[write_chunks] total writes: ", (time.time()-start_total)
@@ -138,14 +141,18 @@ class EAFSClientLib():
 				return 0
 		return True
 	
+	
 	def exists(self, path):
 		return self.master.exists(path)
+	
 	
 	def eafs_flush(self, path, fh):
 		#print "** FUSE called flush( %s ) **" % path
 		self.flush_low( path, fh )
-		#del self.chunk_cache[path]
+		if fh in self.chunk_cache:
+			del self.chunk_cache[fh]
 		return True
+	
 	
 	def eafs_write(self, path, data, fh): #, attributes
 		if self.exists(path):
@@ -172,7 +179,6 @@ class EAFSClientLib():
 		for chunkuuid in chunkuuids:
 			#if self.debug>3: 
 			#print "eafs_read chunkuuid: ", chunkuuid
-			#chunklocs = self.master.get_chunklocs()
 			if chunkuuid in self.chunk_cache_read or chunkuuid in self.chunk_cache_read_wait:
 				if chunkuuid in self.chunk_cache_read_wait:
 					while self.chunk_cache_read_wait[chunkuuid]:
@@ -191,7 +197,7 @@ class EAFSClientLib():
 		
 		
 		# Threading works but only for relatively slow media like video,
-		# for copy it is desastrous
+		# for copy it is not that good
 		if next_chunkuuid is not None and next_chunkuuid not in self.chunk_cache_read and next_chunkuuid not in self.chunk_cache_read_wait:
 			self.chunk_cache_read_wait[next_chunkuuid] = True
 			get_chunk_thread = threading.Thread(None, self.get_chunk_thread, args=(next_chunkuuid, ))

@@ -104,7 +104,6 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 		return self.fd
 	
 	def getattr(self, path, fh=None):
-		#print "CHECK PATH %s" % path
 		f = self.master.file_attr(path)
 		if f is None:
 			raise FuseOSError(ENOENT)
