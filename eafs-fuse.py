@@ -69,7 +69,7 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 	
 	def mkdir(self, path, mode):
 		filename = path
-		attributes = {"type":"d", "atime":"", "ctime":"", "mtime":"", "attrs":""}
+		attributes = {"type":"d", "atime":time.time(), "ctime":time.time(), "mtime":time.time(), "attrs":""}
 		chunkuuids = self.master.alloc(filename, 0, attributes)
 	
 	def rmdir(self, path):
@@ -82,14 +82,12 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 		fl = self.master.list_files(path)
 		files = {}
 		now = time.time()
-		#files = ['.','..']
 		for f in fl:
 			filename = base64.b64decode( f['name'] ) #.decode("utf-8")
 			if f['type']=="d":
-				files[filename] = dict(st_mode=(S_IFDIR | 0755), st_size=f['size'], st_ctime=now, st_mtime=f['mtime'], st_atime=now, st_nlink=0)
+				files[filename] = dict(st_mode=(S_IFDIR | 0755), st_size=f['size'], st_ctime=now, st_mtime=f['mtime'], st_atime=now, st_nlink=2)
 			else:
-				files[filename] = dict(st_mode=(S_IFREG | 0755), st_size=f['size'], st_ctime=now, st_mtime=f['mtime'], st_atime=now, st_nlink=0)
-			#files += { f['name']:dict(st_mode=(S_IFREG | 0755), st_size=f['size'], st_ctime=now, st_mtime=f['mtime'], st_atime=now, st_nlink=0) }
+				files[filename] = dict(st_mode=(S_IFREG | 0755), st_size=f['size'], st_ctime=now, st_mtime=f['mtime'], st_atime=now, st_nlink=1)
 		#print "readdir: ", files
 		return ['.', '..'] + [x[0:] for x in files if x != '/']
 
@@ -97,7 +95,8 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 		return self.eafs_read( path, size, offset )
 	
 	def statfs(self, path):
-		return dict(f_bsize=512, f_blocks=32768000, f_bavail=16384000)
+		return self.master.statfs( path )
+		##return dict(f_bsize=512, f_blocks=32768000, f_bavail=16384000)
 		#return dict(f_bsize=512, f_blocks=4096, f_bavail=2048)
 	
 	def open(self, path, flags):
@@ -126,7 +125,7 @@ def main():
 	parser.add_argument('--debug', dest='debug', default=0, help='Activate debug messages')
 	args = parser.parse_args()
 	master = 'http://' + args.master
-	fuse = FUSE(EAFSClientFuse(master, args.debug), args.mount_point, foreground=True)
+	fuse = FUSE(EAFSClientFuse(master, args.debug), args.mount_point, foreground=True, allow_other=True)
 
 if __name__ == "__main__":
 	main()

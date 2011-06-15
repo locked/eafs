@@ -73,6 +73,10 @@ class EAFSChunkServerRpc:
 	def __init__(self, uuid, address):
 		self.uuid = uuid
 		self.address = address
+		self.size_total = 0
+		self.size_available = 0
+		self.available = 1
+		self.last_seen = time.time()
 		self.rpc = xmlrpclib.ServerProxy(address)
 
 
@@ -100,7 +104,7 @@ class EAFSMaster:
 			c.execute('CREATE TABLE inode (id INTEGER PRIMARY KEY AUTOINCREMENT, parent INTEGER, name text, type char(1), perms text, uid int, gid int, attrs text, ctime text, mtime text, atime text, links int, size int, UNIQUE(parent, name))')
 			c.execute('CREATE TABLE chunk (uuid text, PRIMARY KEY(uuid))')
 			c.execute('CREATE TABLE inode_chunk (inode_id INTEGER, chunk_uuid text, UNIQUE(inode_id,chunk_uuid))')
-			c.execute('CREATE TABLE server (uuid text, address text, PRIMARY KEY(uuid))')
+			c.execute('CREATE TABLE server (uuid text, address text, available INTEGER, last_seen DATETIME, size_total INTEGER, size_available INTEGER, PRIMARY KEY(uuid))')
 			c.execute('CREATE TABLE chunk_server (chunk_uuid text, server_uuid text, UNIQUE(chunk_uuid,server_uuid))')
 			self.db.commit()
 			c.close()
@@ -156,6 +160,25 @@ class EAFSMaster:
 					#print "no chunk server to replicate %d::%s on %s" % (i, chunk_uuid, src_chunkserver_uuid)
 			if num>0:
 				print "%d of %d chunks replicated, total %d left" % (num_replicated, num, len(chunks_to_replicate)-num_replicated)
+			
+			# Check chunkservers
+			chunkservers = self.chunkservers
+			for chunkserver_uuid in chunkservers:
+				chunkserver = chunkservers[chunkserver_uuid]
+				try:
+					(size_total, size_available) = chunkserver.rpc.stat()
+					chunkserver.size_total = size_total
+					chunkserver.size_available = size_available
+					chunkserver.available = 1
+					chunkserver.last_seen = time.time()
+					#print "Chunkserver seen: ", chunkserver.uuid, chunkserver.size_total, chunkserver.size_available
+				except:
+					chunkserver.available = 0
+					#print "Chunkserver _not_ responding: ", chunkserver.uuid
+				#	c.execute("""update server set available=0 where uuid=?""", (chunkserver.uuid, ))
+				c.execute("""update server set last_seen=?, available=?, size_total=?, size_available=? where uuid=?""", (chunkserver.last_seen, chunkserver.available, chunkserver.size_total, chunkserver.size_available, chunkserver.uuid))
+			db.commit()
+			
 			#print "Regular replicator thread end"
 			time.sleep( 20 )
 	
@@ -210,7 +233,12 @@ class EAFSMaster:
 		for row in c:
 			chunkserver_uuid = row[0]
 			chunkserver_address = row[1]
-			self.chunkservers[chunkserver_uuid] = EAFSChunkServerRpc(chunkserver_uuid, chunkserver_address)
+			chunkserver = EAFSChunkServerRpc(chunkserver_uuid, chunkserver_address)
+			chunkserver.available = row[2]
+			chunkserver.last_seen = row[3]
+			chunkserver.size_total = row[4]
+			chunkserver.size_available = row[5]
+			self.chunkservers[chunkserver_uuid] = chunkserver
 			num_chunkservers += 1
 		print " (%d)" % num_chunkservers
 	
@@ -221,7 +249,7 @@ class EAFSMaster:
 		if chunkserver_uuid not in self.chunkservers:
 			self.chunkservers[chunkserver_uuid] = EAFSChunkServerRpc(chunkserver_uuid, chunkserver_address)
 			c = self.db.cursor()
-			c.execute("""insert into server values (?,?)""", (chunkserver_uuid, chunkserver_address))
+			c.execute("""insert into server (uuid, address) values (?,?)""", (chunkserver_uuid, chunkserver_address))
 			self.db.commit()
 			c.close()
 		return chunkserver_uuid
@@ -518,6 +546,11 @@ class EAFSMaster:
 					c.execute("""update inode set size=? where id=?""", (inode.size, inode.id))
 		self.db.commit()
 		c.close()
+	
+	
+	def statfs(self, path):
+		#print "statfs: %s" % path
+		return dict(f_bsize=512, f_blocks=32768000, f_bavail=16384000)
 	
 	
 	def dump_metadata(self):

@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
-import math,uuid,os,time,operator,sys,argparse,zlib,threading
+import math,uuid,os,time,operator,sys,argparse,zlib,threading,statvfs
 from SimpleXMLRPCServer import SimpleXMLRPCServer
 from SimpleXMLRPCServer import SimpleXMLRPCRequestHandler
 import xmlrpclib
@@ -34,9 +34,10 @@ class EAFSChunkServerRpc:
 class EAFSChunkserver:
 	def __init__(self, master_host, host, port, rootfs):
 		# Create root fs
-		if not os.access(rootfs, os.W_OK):
-			os.makedirs(rootfs)
-		self.uuid_filename_full = os.path.join( rootfs, str(port)+"-"+uuid_filename )
+		self.rootfs = rootfs
+		if not os.access(self.rootfs, os.W_OK):
+			os.makedirs(self.rootfs)
+		self.uuid_filename_full = os.path.join( self.rootfs, str(port)+"-"+uuid_filename )
 		uuid = ""
 		try:
 			f = open(self.uuid_filename_full, 'r+')
@@ -90,6 +91,12 @@ class EAFSChunkserver:
 		#print chunk
 		self.write( chunkuuid, chunk )
 		#self.master.chunkserver_has_chunk( self.uuid, chunkuuid )
+	
+	def stat(self):
+		f = os.statvfs(self.rootfs)
+		size_total = int( f[statvfs.F_BLOCKS] * f[statvfs.F_FRSIZE] / 1024 )
+		size_available = int( f[statvfs.F_BAVAIL] * f[statvfs.F_FRSIZE] / 1024 )
+		return (size_total, size_available)
 	
 	def chunk_filename(self, chunkuuid):
 		return os.path.join( self.local_filesystem_root, str(chunkuuid) ) + '.gfs'
