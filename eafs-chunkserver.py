@@ -16,19 +16,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
-import math,uuid,os,time,operator,sys,argparse,zlib,threading,statvfs
+import math,uuid,os,time,operator,sys,argparse,zlib,threading,statvfs,hashlib
+import xmlrpclib
 from SimpleXMLRPCServer import SimpleXMLRPCServer
 from SimpleXMLRPCServer import SimpleXMLRPCRequestHandler
-import xmlrpclib
+
+from eafslib import EAFSChunkServerRpc
+
 
 uuid_filename = "chunkserver.uuid"
 
-
-class EAFSChunkServerRpc:
-	def __init__(self, uuid, address):
-		self.uuid = uuid
-		self.address = address
-		self.rpc = xmlrpclib.ServerProxy(address)
 
 
 class EAFSChunkserver:
@@ -64,14 +61,17 @@ class EAFSChunkserver:
 			os.makedirs(self.local_filesystem_root)
 	
 	
-	def write(self, chunkuuid, chunk):
-		local_filename = self.chunk_filename(chunkuuid)
+	def write(self, chunk_uuid, chunk):
+		local_filename = self.chunk_filename(chunk_uuid)
 		with open(local_filename, "w") as f:
 			f.write(chunk.data)
 			#f.write(zlib.decompress(chunk.data))
-		#self.chunktable[chunkuuid] = local_filename
-		#print "chunkserver_has_chunk: ", self.uuid, chunkuuid
-		self.master.chunkserver_has_chunk( self.uuid, chunkuuid )
+		chunk_md5 = hashlib.md5(zlib.decompress(chunk.data)).hexdigest()
+		local_filename_md5 = self.chunk_md5_filename(chunk_uuid)
+		with open(local_filename_md5, "w") as f:
+			f.write(chunk_md5)
+		#print "chunkserver_has_chunk: ", self.uuid, chunk_uuid, chunk_md5
+		self.master.chunkserver_has_chunk( self.uuid, chunk_uuid, chunk_md5 )
 		return len(chunk.data)
 	
 	
@@ -99,6 +99,10 @@ class EAFSChunkserver:
 	
 	def chunk_filename(self, chunkuuid):
 		return os.path.join( self.local_filesystem_root, str(chunkuuid) ) + '.eafs'
+	
+	
+	def chunk_md5_filename(self, chunkuuid):
+		return os.path.join( self.local_filesystem_root, str(chunkuuid) ) + '.md5'
 
 
 

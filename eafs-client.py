@@ -17,12 +17,8 @@
 '''
 
 import math,uuid,sys,os,time,operator,xmlrpclib,random,argparse
+from eafslib import EAFSChunkServerRpc
 
-class EAFSChunkserver:
-	def __init__(self, uuid, address):
-		self.uuid = uuid
-		self.address = address
-		self.rpc = xmlrpclib.ServerProxy(address)
 
 class EAFSClient:
 	def __init__(self, master_host):
@@ -43,7 +39,7 @@ class EAFSClient:
 		for chunkserver in chunkservers:
 			#print chunkserver
 			if chunkserver['uuid'] not in self.chunkservers:
-				self.chunkservers[chunkserver['uuid']] = EAFSChunkserver( chunkserver['uuid'], chunkserver['address'] )
+				self.chunkservers[chunkserver['uuid']] = EAFSChunkServerRpc( chunkserver['uuid'], chunkserver['address'] )
 		
 	def write_chunks(self, chunkuuids, data):
 		chunks = [ data[x:x+self.master.get_chunksize()] \

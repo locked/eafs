@@ -57,7 +57,7 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 	
 	def create(self, path, mode):
 		attributes = {"type":"f", "atime":time.time(), "ctime":time.time(), "mtime":time.time(), "size":0, "links":1, "attrs":""}
-		chunkuuids = self.master.alloc(path, 0, attributes)
+		chunkuuids = self.master.alloc(path, 0, attributes, '')
 		self.fd += 1
 		return self.fd
 	

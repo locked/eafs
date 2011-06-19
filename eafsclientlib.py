@@ -16,14 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
-import math,uuid,os,time,operator,random,xmlrpclib,argparse,zlib,threading
+import math,uuid,os,time,operator,random,xmlrpclib,argparse,zlib,threading,hashlib
 
+from eafslib import EAFSChunkServerRpc
 
-class EAFSChunkServerRpc:
-	def __init__(self, uuid, address):
-		self.uuid = uuid
-		self.address = address
-		self.rpc = xmlrpclib.ServerProxy(address)
 
 
 class EAFSClientLib():
@@ -124,12 +120,13 @@ class EAFSClientLib():
 		#print "Flush Low: fh:%d path:%s data:%d chunk_cache:%d chunk_size:%d" % (fh, path, len(data), len(self.chunk_cache[fh]), self.chunk_size)
 		if len(data)>0:
 			num_append_chunks = self.num_chunks(len(data))
+			data_md5 = hashlib.md5(data).hexdigest()
 			#print "Flush Low: chunks:%d" % (num_append_chunks)
 			if not self.exists(path):
 				attributes = {"type":"f", "atime":time.time(), "ctime":time.time(), "mtime":time.time(), "size":0, "links":1, "attrs":""}
-				chunkuuids = self.master.alloc(path, num_append_chunks, attributes)
+				chunkuuids = self.master.alloc(path, num_append_chunks, attributes, data_md5)
 			else:
-				chunkuuids = self.master.alloc_append(path, num_append_chunks)
+				chunkuuids = self.master.alloc_append(path, num_append_chunks, data_md5)
 			#print "Flush Low: append_chunkuuids:%d" % (len(data))
 			self.master.file_set_attr(path, 'size', int(len(data)), 'add')
 			

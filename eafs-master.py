@@ -22,6 +22,8 @@ from SimpleXMLRPCServer import SimpleXMLRPCServer
 from SimpleXMLRPCServer import SimpleXMLRPCRequestHandler
 import xmlrpclib
 
+from eafslib import EAFSChunkServerRpc
+
 
 db_filename = "eafs.db"
 
@@ -69,17 +71,6 @@ class EAFSInode:
 		self.size = int(inode_raw[12])
 
 
-class EAFSChunkServerRpc:
-	def __init__(self, uuid, address):
-		self.uuid = uuid
-		self.address = address
-		self.size_total = 0
-		self.size_available = 0
-		self.available = 1
-		self.last_seen = time.time()
-		self.rpc = xmlrpclib.ServerProxy(address)
-
-
 class EAFSMaster:
 	def __init__(self, rootfs, init):
 		self.debug = 0
@@ -107,7 +98,7 @@ class EAFSMaster:
 				pass
 			c.execute("begin")
 			c.execute('CREATE TABLE inode (id INTEGER PRIMARY KEY AUTOINCREMENT, parent INTEGER, name text, type char(1), perms text, uid int, gid int, attrs text, ctime text, mtime text, atime text, links int, size int, UNIQUE(parent, name))')
-			c.execute('CREATE TABLE chunk (uuid text, alloc_time TIMESTAMP, PRIMARY KEY(uuid))')
+			c.execute('CREATE TABLE chunk (uuid text, alloc_time TIMESTAMP, md5 TEXT, PRIMARY KEY(uuid))')
 			c.execute('CREATE TABLE inode_chunk (inode_id INTEGER, chunk_uuid text, UNIQUE(inode_id,chunk_uuid))')
 			c.execute('CREATE TABLE server (uuid text, address text, available INTEGER, last_seen DATETIME, size_total INTEGER, size_available INTEGER, PRIMARY KEY(uuid))')
 			c.execute('CREATE TABLE chunk_server (chunk_uuid text, server_uuid text, UNIQUE(chunk_uuid,server_uuid))')
@@ -193,13 +184,13 @@ class EAFSMaster:
 						if dest_chunkserver_uuid is not None:
 							src_chunkserver_address = self.chunkservers[src_chunkserver_uuid].address
 							#print "replicate chunk %d::%s on %s(%s) to %s" % (i, chunk_uuid, src_chunkserver_uuid, src_chunkserver_address, dest_chunkserver_uuid)
-							#try:
-							if True:
+							try:
+								#if True:
 								self.chunkservers[dest_chunkserver_uuid].rpc.replicate( chunk_uuid, src_chunkserver_uuid, src_chunkserver_address )
 								num_replicated += 1
 								chunk_replicated = True
-							#except:
-							#	print "error connecting to chunkserver: ", dest_chunkserver_uuid
+							except:
+								print "error connecting to chunkserver: ", dest_chunkserver_uuid
 						else:
 							pass
 							#print "no chunk server to replicate %d::%s on %s" % (i, chunk_uuid, src_chunkserver_uuid)
@@ -308,12 +299,21 @@ class EAFSMaster:
 		return self.chunktable[chunkuuid]
 	
 	
-	def chunkserver_has_chunk(self, chunkserver_uuid, chunk_uuid):
+	def chunkserver_has_chunk(self, chunkserver_uuid, chunk_uuid, chunk_md5):
+		# todo: check chunk md5
+		c = self.db.cursor()
+		c.execute("select md5 from chunk where uuid=?", (chunk_uuid, ) )
+		for row in c:
+			if chunk_md5<>row[0]:
+				print "MD5 mismatch: ", chunk_md5, row[0]
+				return False
+			else:
+				print "MD5 OK: ", chunk_md5, row[0]
 		return self.alloc_chunks_to_chunkservers( chunk_uuid, [chunkserver_uuid] )
 	
 	
-	def alloc(self, filename, num_chunks, attributes):
-		chunkuuids = self.alloc_chunks(num_chunks)
+	def alloc(self, filename, num_chunks, attributes, chunk_md5):
+		chunkuuids = self.alloc_chunks(num_chunks, chunk_md5)
 		inode = EAFSInode(attributes)
 		inode.name = os.path.basename( filename )
 		self.save_inodechunktable(filename, chunkuuids, inode)
@@ -333,9 +333,10 @@ class EAFSMaster:
 				c.execute("""insert into chunk_server values (?, ?)""", (chunk_uuid, chunkserver_uuid))
 		#self.db.commit()
 		c.execute("commit")
+		return True
 	
 	
-	def alloc_chunks(self, num_chunks):
+	def alloc_chunks(self, num_chunks, chunk_md5):
 		chunkuuids = []
 		start = time.time()
 		c = self.db.cursor()
@@ -346,7 +347,7 @@ class EAFSMaster:
 			chunk_uuid = str(uuid.uuid1())
 			# Insert new chunk
 			chunkuuids.append(chunk_uuid)
-			c.execute("""insert into chunk values (?,?)""", (chunk_uuid, time.time()))
+			c.execute("""insert into chunk values (?,?,?)""", (chunk_uuid, time.time(), chunk_md5))
 			chunkserver_uuids = self.choose_chunkserver_uuids()
 			# Insert chunk/chunkserver relation
 			# No: this is the chunkserver job
@@ -359,9 +360,9 @@ class EAFSMaster:
 		return chunkuuids
 	
 	
-	def alloc_append(self, filename, num_append_chunks):
+	def alloc_append(self, filename, num_append_chunks, chunk_md5):
 		chunkuuids = self.get_chunkuuids(filename)
-		append_chunkuuids = self.alloc_chunks(num_append_chunks)
+		append_chunkuuids = self.alloc_chunks(num_append_chunks, chunk_md5)
 		self.save_inodechunktable(filename, append_chunkuuids)
 		return append_chunkuuids
 	
