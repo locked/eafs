@@ -70,7 +70,7 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 	def mkdir(self, path, mode):
 		filename = path
 		attributes = {"type":"d", "atime":time.time(), "ctime":time.time(), "mtime":time.time(), "attrs":""}
-		chunkuuids = self.master.alloc(filename, 0, attributes)
+		chunkuuids = self.master.alloc(filename, 0, attributes, '')
 	
 	def rmdir(self, path):
 		self.delete(path)

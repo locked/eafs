@@ -81,8 +81,8 @@ class EAFSMaster:
 		if not os.access(rootfs, os.W_OK):
 			os.makedirs(rootfs)
 		# Connect to DB
-		metadata_backend = 'mysql'
-		if metadata_backend=='sqlite':
+		self.metadata_backend = 'mysql'
+		if self.metadata_backend=='sqlite':
 			self.db_path = os.path.join(rootfs,db_filename)
 			self.metadata = EAFSMetaDataSQLite( self.db_path )
 		else:
@@ -104,21 +104,26 @@ class EAFSMaster:
 		self.load_inodes()
 		self.load_chunks()
 		# Only for sqlite for now
-		if metadata_backend=='sqlite':
-			self.replicator = threading.Thread(None, self.replicator_thread)
-			self.replicator.daemon = True
-			self.replicator.start()
+		#if metadata_backend=='sqlite':
+		self.replicator = threading.Thread(None, self.replicator_thread)
+		self.replicator.daemon = True
+		self.replicator.start()
 	
 	
 	def replicator_thread(self):
-		#db = sqlite3.connect(self.db_path)
+		if self.metadata_backend=='sqlite':
+			metadata = EAFSMetaDataSQLite( self.db_path )
+		else:
+			metadata = EAFSMetaDataMySQL( self.db_path )
+		metadata.connect()
+		"""
 		db = apsw.Connection(self.db_path)
 		db.setbusytimeout(500)
+		"""
 		while 1:
 			#print "Regular replicator thread start"
 			#print self.dump_metadata()
 			# Check chunkservers
-			c = db.cursor()
 			chunkservers = self.chunkservers
 			for chunkserver_uuid in chunkservers:
 				chunkserver = chunkservers[chunkserver_uuid]
@@ -132,19 +137,16 @@ class EAFSMaster:
 				except:
 					chunkserver.available = 0
 					#print "Chunkserver _not_ responding: ", chunkserver.uuid
-				#	c.execute("""update server set available=0 where uuid=?""", (chunkserver.uuid, ))
-				#db = sqlite3.connect(self.db_path)
-				c.execute("begin")
-				c.execute("""update server set last_seen=?, available=?, size_total=?, size_available=? where uuid=?""", (chunkserver.last_seen, chunkserver.available, chunkserver.size_total, chunkserver.size_available, chunkserver.uuid))
-				#db.commit()
-				c.execute("commit")
-				#c.close()
+				metadata_cursor = metadata.get_cursor()
+				metadata.set_server( chunkserver, metadata_cursor )
+				metadata_cursor.commit()
 			
 			# Check chunks
 			chunks = self.chunktable
-			c.execute('select chunk_uuid, alloc_time, count(*) as c from chunk_server left join chunk on (chunk.uuid=chunk_server.chunk_uuid) left join server on (server.uuid=chunk_server.server_uuid) where available=1 group by chunk_uuid, alloc_time having c<=1')
+			
+			rows = metadata.get_missing_replicate_chunks_and_servers()
 			chunks_to_replicate = []
-			for row in c:
+			for row in rows:
 				alloc_time = row[1]
 				if alloc_time is not None:
 					time_diff = time.time()-alloc_time
@@ -186,7 +188,6 @@ class EAFSMaster:
 				print "%d of %d chunks replicated, total %d left" % (num_replicated, num, len(chunks_to_replicate)-num_replicated)
 			
 			#print "Regular replicator thread end"
-			c.close()
 			time.sleep( 30 )
 	
 	
@@ -281,10 +282,6 @@ class EAFSMaster:
 	
 	
 	def chunkserver_has_chunk(self, chunkserver_uuid, chunk_uuid, chunk_md5):
-		# todo: check chunk md5
-		#c = self.db.cursor()
-		#c.execute("select md5 from chunk where uuid=?", (chunk_uuid, ) )
-		#for row in c:
 		if chunk_uuid not in self.chunktable:
 			return False
 		if 'md5' not in self.chunktable[chunk_uuid]:
@@ -307,17 +304,12 @@ class EAFSMaster:
 		if chunk_uuid not in self.chunktable:
 			self.chunktable[chunk_uuid] = {}
 			self.chunktable[chunk_uuid]['chunkserver_uuids'] = []
-		#c = self.db.cursor()
-		#c.execute("""PRAGMA synchronous = OFF""")
-		#c.execute("begin")
 		metadata_cursor = self.metadata.get_cursor()
 		for chunkserver_uuid in chunkserver_uuids:
 			#print "alloc_chunks_to_chunkservers: ", chunk_uuid, chunkserver_uuid
 			if chunkserver_uuid not in self.chunktable[chunk_uuid]['chunkserver_uuids']:
 				self.chunktable[chunk_uuid]['chunkserver_uuids'].append( chunkserver_uuid )
-				#c.execute("""insert into chunk_server values (?, ?)""", (chunk_uuid, chunkserver_uuid))
 				self.metadata.add_chunk_in_server( chunk_uuid, chunkserver_uuid, metadata_cursor )
-		#c.execute("commit")
 		metadata_cursor.commit()
 		return True
 	
@@ -325,9 +317,6 @@ class EAFSMaster:
 	def alloc_chunks(self, num_chunks, chunk_md5):
 		chunkuuids = []
 		start = time.time()
-		#c = self.db.cursor()
-		#c.execute("""PRAGMA synchronous = OFF""")
-		#c.execute("begin")
 		metadata_cursor = self.metadata.get_cursor()
 		for i in range(0, num_chunks):
 			# Generate UUID
@@ -338,16 +327,13 @@ class EAFSMaster:
 				self.chunktable[chunk_uuid] = {}
 				self.chunktable[chunk_uuid]['chunkserver_uuids'] = []
 			self.chunktable[chunk_uuid]['md5'] = chunk_md5
-			#c.execute("""insert into chunk values (?,?,?)""", (chunk_uuid, time.time(), chunk_md5))
 			self.metadata.add_chunk( chunk_uuid, time.time(), chunk_md5, metadata_cursor )
 			chunkserver_uuids = self.choose_chunkserver_uuids()
 			# Insert chunk/chunkserver relation
 			# No: this is the chunkserver job
 		start_sql = time.time()
 		metadata_cursor.commit()
-		#c.execute("commit")
 		if self.debug>0: print "[alloc_chunks] sql commit: ", (time.time()-start_sql)
-		#c.close()
 		if self.debug>0: print "[alloc_chunks] total: ", len(chunkuuids), (time.time()-start)
 		return chunkuuids
 	
@@ -366,7 +352,6 @@ class EAFSMaster:
 	
 	def get_inode_from_filename( self, filename ):
 		#print "get_inode_from_filename: ", filename
-		#c = self.db.cursor()
 		fs = filename.split("/")[1:]
 		if filename=="/":
 			parent_inode_id = 0
@@ -375,7 +360,6 @@ class EAFSMaster:
 		curpath = ""
 		for fn in fs:
 			#print "  Lookup inode: ", parent_inode_id, fn
-			#c.execute("""select * from inode where parent=? and name=?""", (parent_inode_id, fn) )
 			rows = self.metadata.search_inode_with_parent( parent_inode_id, fn )
 			inode_raw = None
 			for row in rows:
@@ -430,14 +414,6 @@ class EAFSMaster:
 	def get_chunkuuids(self, filename):
 		inode = self.get_inode_from_filename( filename )
 		if inode:
-			"""
-			c = self.db.cursor()
-			c.execute("select chunk_uuid from inode_chunk where inode_id=? order by chunk_uuid", (inode.id, ) )
-			chunks = []
-			for row in c:
-				chunks.append( row[0] )
-			return chunks
-			"""
 			return self.inodetable[inode.id].chunks
 		return None
 	
@@ -451,23 +427,14 @@ class EAFSMaster:
 	def delete(self, filename):
 		inode = self.get_inode_from_filename( filename )
 		if inode:
-			#c = self.db.cursor()
-			#c.execute("begin")
 			metadata_cursor = self.metadata.get_cursor()
 			chunkuuids = self.inodetable[inode.id].chunks
 			for chunkuuid in chunkuuids:
 				self.metadata.del_chunk( chunkuuid, metadata_cursor )
 				self.metadata.del_chunk_server( chunkuuid, metadata_cursor )
-				#c.execute("""delete from chunk where uuid=?""", (chunkuuid, ))
-				#c.execute("""delete from chunk_server where chunk_uuid=?""", (chunkuuid, ))
 			del self.inodetable[inode.id]
 			self.metadata.del_inode_chunk( inode.id, metadata_cursor )
 			self.metadata.del_inode( inode.id, metadata_cursor )
-			#c.execute("""delete from inode_chunk where inode_id=?""", (inode.id, ))
-			#c.execute("""delete from inode where id=?""", (inode.id, ))
-			#self.db.commit()
-			#c.execute("commit")
-			#c.close()
 			metadata_cursor.commit()
 		return True
 	
@@ -479,16 +446,10 @@ class EAFSMaster:
 			attributes = self.inodetable[inode.id]
 			chunkuuids = attributes.chunks
 			del self.inodetable[inode.id]
-			#c = self.db.cursor()
-			#c.execute("begin")
 			metadata_cursor = self.metadata.get_cursor()
-			#c.execute("""delete from inode_chunk where inode_id=?""", (inode.id, ))
-			#c.execute("""delete from inode where id=?""", (inode.id, ))
-			#c.execute("commit")
 			self.metadata.del_inode_chunk( inode.id, metadata_cursor )
 			self.metadata.del_inode( inode.id, metadata_cursor )
 			metadata_cursor.commit()
-			#c.close()
 			self.save_inodechunktable(new_filename,chunkuuids,attributes)
 			print "file: " + filename + " renamed to " + new_filename
 			return True
@@ -508,11 +469,8 @@ class EAFSMaster:
 				return False
 			parent_inode_id = parent_inode.id
 		metadata_cursor = self.metadata.get_cursor()
-		#c = self.db.cursor()
-		#c.execute("begin")
 		self.metadata.add_inode( parent_inode_id, create_filename, inode, metadata_cursor )
 		metadata_cursor.commit()
-		#c.execute("commit")
 		inode = self.get_inode_from_filename( filename )
 		if inode:
 			self.inodetable[inode.id] = inode
@@ -525,8 +483,6 @@ class EAFSMaster:
 	def save_inodechunktable(self, filename, chunkuuids, save_inode=None):
 		#print "save_inodechunktable: %s" % (filename, )
 		inode = self.get_inode_from_filename( filename )
-		#c = self.db.cursor()
-		#c.execute("""PRAGMA synchronous = OFF""")
 		if not inode:
 			if save_inode is None:
 				return False
@@ -535,14 +491,10 @@ class EAFSMaster:
 				return False
 		self.inodetable[inode.id].chunks.extend( chunkuuids )
 		#print "Save %d chunks for node %d" % (len(self.inodetable[inode.id].chunks), inode.id)
-		#c.execute("begin")
 		metadata_cursor = self.metadata.get_cursor()
 		for chunkuuid in chunkuuids:
 			if self.debug>3: print "insert into inode_chunk values (%s, %s)" % (inode.id, chunkuuid)
-			#c.execute("""insert into inode_chunk values (?,?)""", (inode.id, chunkuuid))
 			self.metadata.add_inode_chunk( inode.id, chunkuuid, metadata_cursor )
-		#c.execute("commit")
-		#c.close()
 		metadata_cursor.commit()
 	
 	
@@ -571,18 +523,13 @@ class EAFSMaster:
 	
 	def file_set_attr(self, filename, attr, val, op):
 		inode = self.get_inode_from_filename( filename )
-		#c = self.db.cursor()
-		#c.execute("begin")
 		metadata_cursor = self.metadata.get_cursor()
 		if inode:
 			if attr=='size':
 				if op=='add':
 					#print "file_set_attr: add new size: ", val
 					self.inodetable[inode.id].size+= val
-					#c.execute("""update inode set size=? where id=?""", (inode.size, inode.id))
 					self.metadata.set_inode_size( inode, metadata_cursor )
-		#c.execute("commit")
-		#c.close()
 		metadata_cursor.commit()
 	
 	
