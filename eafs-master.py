@@ -235,12 +235,14 @@ class EAFSMaster:
 	def load_chunks(self):
 		print "LOAD CHUNKTABLE: ",
 		c = self.db.cursor()
-		c.execute('select * from chunk_server')
+		c.execute('select chunk_server.chunk_uuid, chunk_server.server_uuid, chunk.md5 from chunk_server left join chunk on (chunk.uuid=chunk_server.chunk_uuid)')
 		num_chunktable = 0
 		for row in c:
 			if row[0] not in self.chunktable:
-				self.chunktable[row[0]] = []
-			self.chunktable[row[0]].append( row[1] )
+				self.chunktable[row[0]] = {}
+				self.chunktable[row[0]]['chunkserver_uuids'] = []
+				self.chunktable[row[0]]['md5'] = row[2]
+			self.chunktable[row[0]]['chunkserver_uuids'].append( row[1] )
 			num_chunktable += 1
 		print " (%d)" % num_chunktable
 	
@@ -296,19 +298,21 @@ class EAFSMaster:
 	
 	
 	def get_chunklocs(self, chunkuuid):
-		return self.chunktable[chunkuuid]
+		return self.chunktable[chunkuuid]['chunkserver_uuids']
 	
 	
 	def chunkserver_has_chunk(self, chunkserver_uuid, chunk_uuid, chunk_md5):
 		# todo: check chunk md5
-		c = self.db.cursor()
-		c.execute("select md5 from chunk where uuid=?", (chunk_uuid, ) )
-		for row in c:
-			if chunk_md5<>row[0]:
-				print "MD5 mismatch: ", chunk_md5, row[0]
-				return False
-			else:
-				print "MD5 OK: ", chunk_md5, row[0]
+		#c = self.db.cursor()
+		#c.execute("select md5 from chunk where uuid=?", (chunk_uuid, ) )
+		#for row in c:
+		if chunk_uuid not in self.chunktable:
+			return False
+		if 'md5' not in self.chunktable[chunk_uuid]:
+			return False
+		if chunk_md5<>self.chunktable[chunk_uuid]['md5']:
+			print "MD5 mismatch: ", chunk_md5, self.chunktable[chunk_uuid]['md5']
+			return False
 		return self.alloc_chunks_to_chunkservers( chunk_uuid, [chunkserver_uuid] )
 	
 	
@@ -322,14 +326,15 @@ class EAFSMaster:
 	
 	def alloc_chunks_to_chunkservers(self, chunk_uuid, chunkserver_uuids):
 		if chunk_uuid not in self.chunktable:
-			self.chunktable[chunk_uuid] = []
+			self.chunktable[chunk_uuid] = {}
+			self.chunktable[chunk_uuid]['chunkserver_uuids'] = []
 		c = self.db.cursor()
 		c.execute("""PRAGMA synchronous = OFF""")
 		c.execute("begin")
 		for chunkserver_uuid in chunkserver_uuids:
 			#print "alloc_chunks_to_chunkservers: ", chunk_uuid, chunkserver_uuid
-			if chunkserver_uuid not in self.chunktable[chunk_uuid]:
-				self.chunktable[chunk_uuid].append( chunkserver_uuid )
+			if chunkserver_uuid not in self.chunktable[chunk_uuid]['chunkserver_uuids']:
+				self.chunktable[chunk_uuid]['chunkserver_uuids'].append( chunkserver_uuid )
 				c.execute("""insert into chunk_server values (?, ?)""", (chunk_uuid, chunkserver_uuid))
 		#self.db.commit()
 		c.execute("commit")
@@ -347,6 +352,10 @@ class EAFSMaster:
 			chunk_uuid = str(uuid.uuid1())
 			# Insert new chunk
 			chunkuuids.append(chunk_uuid)
+			if chunk_uuid not in self.chunktable:
+				self.chunktable[chunk_uuid] = {}
+				self.chunktable[chunk_uuid]['chunkserver_uuids'] = []
+			self.chunktable[chunk_uuid]['md5'] = chunk_md5
 			c.execute("""insert into chunk values (?,?,?)""", (chunk_uuid, time.time(), chunk_md5))
 			chunkserver_uuids = self.choose_chunkserver_uuids()
 			# Insert chunk/chunkserver relation
@@ -423,9 +432,15 @@ class EAFSMaster:
 		#print "filename:%s size:%d offset:%d num:%d new_offset:%d start:%d end:%d" % (filename,size,offset,num,new_offset,start,end)
 		#print new_chunkuuids
 		chunkserver_uuids = {}
+		chunkmd5s = {}
 		for chunkuuid in new_chunkuuids:
 			chunkserver_uuids[chunkuuid] = self.get_chunklocs(chunkuuid)
-		return (new_chunkuuids, new_offset, chunkserver_uuids, next_chunkuuid)
+			chunkmd5s[chunkuuid] = self.get_chunkmd5(chunkuuid)
+		return (new_chunkuuids, new_offset, chunkserver_uuids, chunkmd5s, next_chunkuuid)
+	
+	
+	def get_chunkmd5(self, chunk_uuid):
+		return self.chunktable[chunk_uuid]['md5']
 	
 	
 	def get_chunkuuids(self, filename):

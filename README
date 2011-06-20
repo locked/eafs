@@ -26,6 +26,6 @@ EAFS is a distributed filesystem in python, aiming simplicity and very extendabl
 Requirements
 ------------
 
- - python-sqlite
+ - python-apsw
  - fuse.py (http://code.google.com/p/fusepy/ or http://php.lunasys.fr/fuse.py)
 

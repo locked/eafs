@@ -167,7 +167,7 @@ class EAFSClientLib():
 			raise Exception("read error, file does not exist: " + path)
 		#if self.debug>1: print "eafs_read path: [%s] size:%d offset:%d" % (path, size, offset)
 		#print "eafs_read: ", path, size, offset
-		(chunkuuids, offset, chunkserver_uuids, next_chunkuuid) = self.master.get_chunkuuids_offset(path,size,offset)
+		(chunkuuids, offset, chunkserver_uuids, chunkmd5s, next_chunkuuid) = self.master.get_chunkuuids_offset(path,size,offset)
 		#print "eafs_read chunkserver_uuids: ", chunkserver_uuids
 		#if self.debug>2:
 		#print "eafs_read chunkuuids: ", chunkuuids
@@ -181,7 +181,11 @@ class EAFSClientLib():
 					while self.chunk_cache_read_wait[chunkuuid]:
 						time.sleep(1.0/1000.0)
 				chunk = self.chunk_cache_read[chunkuuid]
-				#print "eafs_read chunkuuid:%s chunk:%d " % (chunkuuid, len(chunk))
+				chunk_md5 = hashlib.md5(chunk).hexdigest()
+				if chunkmd5s[chunkuuid]<>chunk_md5:
+					print "eafs_read MD5 ERROR chunkuuid:%s chunk:%d master_md5:%s chunk_md5:%s" % (chunkuuid, len(chunk), chunkmd5s[chunkuuid], chunk_md5)
+					chunk = self.get_chunk( chunkuuid, chunkserver_uuids )
+				#print "eafs_read chunkuuid:%s chunk:%d master_md5:%s chunk_md5:%s" % (chunkuuid, len(chunk), chunkmd5s[chunkuuid], chunk_md5)
 			else:
 				chunk = self.get_chunk( chunkuuid, chunkserver_uuids )
 			if chunk is None:
