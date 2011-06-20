@@ -1,0 +1,5 @@
+MASTER=192.168.0.10:6799
+HOST=192.168.0.10
+ROOTFS=/hd1/eafs
+
+python eafs-chunkserver.py --host $HOST --master $MASTER --rootfs $ROOTFS

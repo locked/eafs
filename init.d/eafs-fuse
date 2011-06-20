@@ -1,0 +1,4 @@
+MASTER=192.168.0.10:6799
+MOUNT=/mnt
+
+python eafs-fuse.py --master $MASTER --mount $MOUNT
