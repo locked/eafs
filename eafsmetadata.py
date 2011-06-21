@@ -21,8 +21,9 @@ import MySQLdb
 
 
 class EAFSMetaDataCursor:
-	def __init__(self, db):
-		self.db = db
+	def __init__(self, parent):
+		self.parent = parent
+		self.db = self.parent.db
 		self.cursor = self.begin()
 		#print "[BEGIN] Cursor: ", self.cursor
 
@@ -55,7 +56,7 @@ class EAFSMetaDataSQLite(EAFSMetaData):
 		self.db.setbusytimeout(500)
 	
 	def get_cursor(self):
-		return EAFSMetaDataSQLiteCursor( self.db )
+		return EAFSMetaDataSQLiteCursor( self )
 	
 	def init(self):
 		c = self.db.cursor()
@@ -121,12 +122,12 @@ class EAFSMetaDataSQLite(EAFSMetaData):
 	
 	def add_chunk_in_server(self, chunk_uuid, chunkserver_uuid, cursor=None):
 		if cursor is None:
-			cursor = EAFSMetaDataSQLiteCursor( self.db.cursor() )
+			cursor = self.get_cursor()
 		cursor.cursor.execute("""insert into chunk_server values (?, ?)""", (chunk_uuid, chunkserver_uuid))
 	
 	def add_chunk(self, chunk_uuid, chunk_timestamp, chunk_md5, cursor=None):
 		if cursor is None:
-			cursor = EAFSMetaDataSQLiteCursor( self.db.cursor() )
+			cursor = self.get_cursor()
 		cursor.cursor.execute("""insert into chunk values (?,?,?)""", (chunk_uuid, chunk_timestamp, chunk_md5))
 	
 	def search_inode_with_parent(self, parent_inode_id, filename):
@@ -139,28 +140,28 @@ class EAFSMetaDataSQLite(EAFSMetaData):
 	
 	def del_chunk( self, chunkuuid, cursor=None ):
 		if cursor is None:
-			cursor = EAFSMetaDataSQLiteCursor( self.db.cursor() )
+			cursor = self.get_cursor()
 		cursor.cursor.execute("""delete from chunk where uuid=?""", (chunkuuid, ))
 	
 	def del_chunk_server( self, chunkuuid, cursor=None ):
 		if cursor is None:
-			cursor = EAFSMetaDataSQLiteCursor( self.db.cursor() )
+			cursor = self.get_cursor()
 		cursor.cursor.execute("""delete from chunk_server where chunk_uuid=?""", (chunkuuid, ))
 	
 	def del_inode_chunk( self, inode_id, cursor=None ):
 		if cursor is None:
-			cursor = EAFSMetaDataSQLiteCursor( self.db.cursor() )
+			cursor = self.get_cursor()
 		cursor.cursor.execute("""delete from inode_chunk where inode_id=?""", (inode_id, ))
 	
 	def del_inode( self, inode_id, cursor=None ):
 		if cursor is None:
-			cursor = EAFSMetaDataSQLiteCursor( self.db.cursor() )
+			cursor = self.get_cursor()
 		cursor.cursor.execute("""delete from inode where id=?""", (inode_id, ))
 	
 	def add_inode( self, parent_inode_id, filename, inode, cursor=None ):
 		self_commit = False
 		if cursor is None:
-			cursor = EAFSMetaDataSQLiteCursor( self.db.cursor() )
+			cursor = self.get_cursor()
 			self_commit = True
 		cursor.cursor.execute("""insert into inode (parent,name,type,perms,uid,gid,attrs,ctime,mtime,atime,links,size) values (?,?,?,?,?,?,?,?,?,?,?,?)""", (parent_inode_id, filename, inode.type, "755", 0, 0, inode.attrs, inode.ctime, inode.mtime, inode.atime, 0, inode.size))
 		#print "Create: ", "insert into inode (parent,name,type,perms,uid,gid,attrs,ctime,mtime,atime,links) values (%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)" % (parent_inode_id, create_filename, attributes["type"], "wrxwrxwrx", 0, 0, attributes["attrs"], attributes["ctime"], attributes["mtime"], attributes["atime"], 0)
@@ -170,7 +171,7 @@ class EAFSMetaDataSQLite(EAFSMetaData):
 	def add_inode_chunk( self, inode_id, chunkuuid, cursor=None ):
 		self_commit = False
 		if cursor is None:
-			cursor = EAFSMetaDataSQLiteCursor( self.db.cursor() )
+			cursor = self.get_cursor()
 			self_commit = True
 		cursor.cursor.execute("""insert into inode_chunk values (?,?)""", (inode_id, chunkuuid))
 		if self_commit:
@@ -179,7 +180,7 @@ class EAFSMetaDataSQLite(EAFSMetaData):
 	def set_inode_size( self, inode, cursor=None ):
 		self_commit = False
 		if cursor is None:
-			cursor = EAFSMetaDataSQLiteCursor( self.db.cursor() )
+			cursor = self.get_cursor()
 			self_commit = True
 		cursor.cursor.execute("""update inode set size=? where id=?""", (inode.size, inode.id))
 		if self_commit:
@@ -203,13 +204,17 @@ class EAFSMetaDataSQLite(EAFSMetaData):
 
 class EAFSMetaDataMySQLCursor(EAFSMetaDataCursor):
 	def begin(self):
-		c = self.db.cursor()
+		try:
+			c = self.parent.db.cursor()
+		except (AttributeError, MySQLdb.OperationalError):
+			self.parent.connect()
+			c = self.parent.db.cursor()
 		#c.execute("begin")
 		return c
 	
 	def commit(self):
 		#print "[COMMIT] Cursor: ", self.cursor
-		self.db.commit()
+		self.parent.db.commit()
 		#self.db.close()
 
 
@@ -218,7 +223,15 @@ class EAFSMetaDataMySQL(EAFSMetaData):
 		self.db = MySQLdb.connect( host = "localhost", user = "eafs", passwd = "iopiop", db = "eafs" )
 	
 	def get_cursor(self):
-		return EAFSMetaDataMySQLCursor( self.db )
+		return EAFSMetaDataMySQLCursor( self )
+	
+	def get_read_cursor(self):
+		try:
+			c = self.db.cursor()
+		except (AttributeError, MySQLdb.OperationalError):
+			self.connect()
+			c = self.db.cursor()
+		return c
 	
 	def init(self):
 		try:
@@ -241,25 +254,25 @@ class EAFSMetaDataMySQL(EAFSMetaData):
 		cursor.commit()
 	
 	def get_inodes(self):
-		c = self.db.cursor()
+		c = self.get_read_cursor()
 		c.execute('select * from inode')
 		rows = c.fetchall()
 		return rows
 	
 	def get_inode_chunks(self):
-		c = self.db.cursor()
+		c = self.get_read_cursor()
 		c.execute('select * from inode_chunk order by chunk_uuid')
 		rows = c.fetchall()
 		return rows
 	
 	def get_chunks_and_servers(self):
-		c = self.db.cursor()
+		c = self.get_read_cursor()
 		c.execute('select chunk_server.chunk_uuid, chunk_server.server_uuid, chunk.md5 from chunk_server left join chunk on (chunk.uuid=chunk_server.chunk_uuid)')
 		rows = c.fetchall()
 		return rows
 	
 	def get_servers(self):
-		c = self.db.cursor()
+		c = self.get_read_cursor()
 		c.execute('select * from server')
 		rows = c.fetchall()
 		return rows
@@ -337,7 +350,7 @@ class EAFSMetaDataMySQL(EAFSMetaData):
 		cursor.cursor.execute("""update server set last_seen=FROM_UNIXTIME(%s), available=%s, size_total=%s, size_available=%s where uuid=%s""", (chunkserver.last_seen, chunkserver.available, chunkserver.size_total, chunkserver.size_available, chunkserver.uuid))
 	
 	def get_missing_replicate_chunks_and_servers( self ):
-		c = self.db.cursor()
+		c = self.get_read_cursor()
 		c.execute('select chunk_uuid, UNIX_TIMESTAMP(alloc_time), count(*) as c from chunk_server left join chunk on (chunk.uuid=chunk_server.chunk_uuid) left join server on (server.uuid=chunk_server.server_uuid) where available=1 group by chunk_uuid, alloc_time having c<=1')
 		rows = c.fetchall()
 		return rows
