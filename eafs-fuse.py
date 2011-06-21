@@ -31,9 +31,6 @@ from eafsclientlib import EAFSClientLib
 
 class EAFSClientFuse(EAFSClientLib, Operations):
 #class EAFSClientFuse(EAFSClientLib, LoggingMixIn, Operations):
-	def delete(self, filename):
-		self.master.delete(filename)
-	
 	def rename(self, old, new):
 		self.master.rename(old, new)
 	
@@ -73,7 +70,7 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 		chunkuuids = self.master.alloc(filename, 0, attributes, '')
 	
 	def rmdir(self, path):
-		self.delete(path)
+		self.master.delete(path)
 	
 	def unlink(self, path):
 		self.master.delete(path)
@@ -109,12 +106,62 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 			raise FuseOSError(ENOENT)
 		now = time.time()
 		if f['type']=="d":
-			st = dict(st_mode=(S_IFDIR | 0755), st_ctime=now, st_mtime=now, st_atime=now, st_nlink=2)
+			st = dict(st_mode=(S_IFDIR | 0755), st_size=4096, st_ctime=f['ctime'], st_mtime=f['mtime'], st_atime=f['atime'], st_nlink=0)
 		elif f['type']=="f":
-			st = dict(st_mode=(S_IFREG | 0755), st_size=f['size'], st_ctime=now, st_mtime=now, st_atime=now, st_nlink=2)
+			st = dict(st_mode=(S_IFREG | 0755), st_size=f['size'], st_ctime=f['ctime'], st_mtime=f['mtime'], st_atime=f['atime'], st_nlink=0)
 		else:
 			raise FuseOSError(ENOENT)
 		return st
+	
+	def utimens(self, path, times=None):
+		now = time.time()
+		"""
+		atime, mtime = times if times else (now, now)
+		self.files[path]['st_atime'] = atime
+		self.files[path]['st_mtime'] = mtime
+		"""
+	
+	def symlink(self, target, source):
+		pass
+		"""
+		self.files[target] = dict(st_mode=(S_IFLNK | 0777), st_nlink=1,
+			st_size=len(source))
+		self.data[target] = source
+		"""
+	
+	def setxattr(self, path, name, value, options, position=0):
+		pass
+		"""
+		attrs = self.files[path].setdefault('attrs', {})
+		attrs[name] = value
+		"""
+	
+	def removexattr(self, path, name):
+		pass
+	
+	def readlink(self, path):
+		return self.data[path]
+	
+	def listxattr(self, path):
+		return []
+	
+	def getxattr(self, path, name, position=0):
+		return ''
+	
+	def chmod(self, path, mode):
+		"""
+		self.files[path]['st_mode'] &= 0770000
+		self.files[path]['st_mode'] |= mode
+		"""
+		return 0
+	
+	def chown(self, path, uid, gid):
+		pass
+		"""
+		self.files[path]['st_uid'] = uid
+		self.files[path]['st_gid'] = gid
+		"""
+
 
 
 def main():

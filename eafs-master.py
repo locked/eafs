@@ -25,7 +25,6 @@ import xmlrpclib
 from eafslib import EAFSChunkServerRpc
 from eafsmetadata import *
 
-
 db_filename = "eafs.db"
 
 
@@ -41,9 +40,9 @@ class EAFSInode:
 		self.uid = 0
 		self.gid = 0
 		self.attrs = ""
-		self.ctime = ""
-		self.mtime = ""
-		self.atime = ""
+		self.ctime = 0
+		self.mtime = 0
+		self.atime = 0
 		self.links = 0
 		self.size = 0
 		self.chunks = []
@@ -67,9 +66,12 @@ class EAFSInode:
 		self.uid = int(inode_raw[5])
 		self.gid = int(inode_raw[6])
 		self.attrs = inode_raw[7]
-		self.ctime = inode_raw[8]
-		self.mtime = inode_raw[9]
-		self.atime = inode_raw[10]
+		if inode_raw[8]=='': self.ctime = 0
+		else: self.ctime = int(inode_raw[8])
+		if inode_raw[9]=='': self.mtime = 0
+		else: self.mtime = int(inode_raw[9])
+		if inode_raw[10]=='': self.atime = 0
+		else: self.atime = int(inode_raw[10])
 		self.links = int(inode_raw[11])
 		self.size = int(inode_raw[12])
 

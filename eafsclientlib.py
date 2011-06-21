@@ -153,7 +153,7 @@ class EAFSClientLib():
 	
 	def eafs_write(self, path, data, fh): #, attributes
 		if self.exists(path):
-			self.delete(path)
+			self.master.delete(path)
 		#num_chunks = self.num_chunks(len(data))
 		#chunkuuids = self.master.alloc(path, num_chunks, attributes)
 		#print "eafs_write: fh:%d path:%s data:%d" % (fh, path, len(data))
