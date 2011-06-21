@@ -123,7 +123,7 @@ class EAFSClientLib():
 			data_md5 = hashlib.md5(data).hexdigest()
 			#print "Flush Low: chunks:%d" % (num_append_chunks)
 			if not self.exists(path):
-				attributes = {"type":"f", "atime":time.time(), "ctime":time.time(), "mtime":time.time(), "size":0, "links":1, "attrs":""}
+				attributes = {"type":"f", "atime":int(time.time()), "ctime":int(time.time()), "mtime":int(time.time()), "size":0, "links":1, "attrs":""}
 				chunkuuids = self.master.alloc(path, num_append_chunks, attributes, data_md5)
 			else:
 				chunkuuids = self.master.alloc_append(path, num_append_chunks, data_md5)

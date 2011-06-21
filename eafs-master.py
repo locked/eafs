@@ -47,14 +47,13 @@ class EAFSInode:
 		self.size = 0
 		self.chunks = []
 		if attrs is not None:
-			if 'id' in attrs:
-				self.id = attrs['id']
-			if 'parent' in attrs:
-				self.parent = attrs['parent']
-			if 'name' in attrs:
-				self.name = attrs['name']
-			if 'type' in attrs:
-				self.type = attrs['type']
+			for attr in ['id','parent','name','type','ctime','atime','mtime']:
+				if attr in attrs: setattr(self, attr, attrs[attr])
+				#self.set( attr, attrs[attr] )
+			#if 'parent' in attrs: self.parent = attrs['parent']
+			#if 'name' in attrs: self.name = attrs['name']
+			#if 'type' in attrs: self.type = attrs['type']
+			#if 'ctime' in attrs: self.ctime = attrs['ctime']
 		self.size = 0
 	
 	def update_from_db(self, inode_raw):
@@ -67,11 +66,11 @@ class EAFSInode:
 		self.gid = int(inode_raw[6])
 		self.attrs = inode_raw[7]
 		if inode_raw[8]=='': self.ctime = 0
-		else: self.ctime = int(inode_raw[8])
+		else: self.ctime = int(float(inode_raw[8]))
 		if inode_raw[9]=='': self.mtime = 0
-		else: self.mtime = int(inode_raw[9])
+		else: self.mtime = int(float(inode_raw[9]))
 		if inode_raw[10]=='': self.atime = 0
-		else: self.atime = int(inode_raw[10])
+		else: self.atime = int(float(inode_raw[10]))
 		self.links = int(inode_raw[11])
 		self.size = int(inode_raw[12])
 
@@ -462,7 +461,7 @@ class EAFSMaster:
 		#print "Create inode: ", filename
 		create_filename = os.path.basename( filename )
 		if inode is None:
-			inode = EAFSInode({ "type":"d", "name":create_filename, "attrs":"", "ctime":"", "mtime":"", "atime":"" })
+			inode = EAFSInode({ "type":"d", "name":create_filename, "attrs":"", "ctime":int(time.time()), "mtime":int(time.time()), "atime":int(time.time()) })
 		if filename=="/":
 			parent_inode_id = 0
 		else:
