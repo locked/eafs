@@ -273,7 +273,7 @@ class EAFSMetaDataMySQL(EAFSMetaData):
 	
 	def get_servers(self):
 		c = self.get_read_cursor()
-		c.execute('select * from server')
+		c.execute('select uuid, address, available, UNIX_TIMESTAMP(last_seen) AS last_seen, size_total, size_available from server')
 		rows = c.fetchall()
 		return rows
 
@@ -347,7 +347,8 @@ class EAFSMetaDataMySQL(EAFSMetaData):
 			cursor.commit()
 	
 	def set_server( self, chunkserver, cursor ):
-		cursor.cursor.execute("""update server set last_seen=FROM_UNIXTIME(%s), available=%s, size_total=%s, size_available=%s where uuid=%s""", (chunkserver.last_seen, chunkserver.available, chunkserver.size_total, chunkserver.size_available, chunkserver.uuid))
+		#print "update server set last_seen=FROM_UNIXTIME(%s), available=%s, size_total=%s, size_available=%s where uuid=%s" % (chunkserver.last_seen, chunkserver.available, chunkserver.size_total, chunkserver.size_available, chunkserver.uuid)
+		cursor.cursor.execute("""update server set last_seen=FROM_UNIXTIME(%s), address=%s, available=%s, size_total=%s, size_available=%s where uuid=%s""", (chunkserver.last_seen, chunkserver.address, chunkserver.available, chunkserver.size_total, chunkserver.size_available, chunkserver.uuid))
 	
 	def get_missing_replicate_chunks_and_servers( self ):
 		c = self.get_read_cursor()

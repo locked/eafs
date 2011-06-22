@@ -257,6 +257,11 @@ class EAFSMaster:
 		if chunkserver_uuid not in self.chunkservers:
 			self.chunkservers[chunkserver_uuid] = EAFSChunkServerRpc(chunkserver_uuid, chunkserver_address)
 			self.metadata.add_server( chunkserver_uuid, chunkserver_address )
+		else:
+			self.chunkservers[chunkserver_uuid].address = chunkserver_address
+			metadata_cursor = self.metadata.get_cursor()
+			self.metadata.set_server( self.chunkservers[chunkserver_uuid], metadata_cursor )
+			metadata_cursor.commit()
 		return chunkserver_uuid
 	
 	
