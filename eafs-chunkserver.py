@@ -113,6 +113,7 @@ class RequestHandler(SimpleXMLRPCRequestHandler):
 def main():
 	parser = argparse.ArgumentParser(description='EAFS Chunk Server')
 	parser.add_argument('--host', dest='host', default='localhost', help='Bind to address')
+	parser.add_argument('--bind', dest='bind', default='0.0.0.0', help='Bind to address')
 	parser.add_argument('--port', dest='port', default=6800, type=int, help='Bind to port')
 	parser.add_argument('--master', dest='master', default='localhost:6799', help='Master server address')
 	parser.add_argument('--rootfs', dest='rootfs', default='/tmp/eafs/', help='Save chunk to')
@@ -120,8 +121,11 @@ def main():
 	
 	master_host = "http://" + args.master
 	
+	bind_host = args.host
+	if args.bind<>'':
+		bind_host = args.bind
 	# Create server
-	server = SimpleXMLRPCServer((args.host, args.port), requestHandler=RequestHandler, allow_none=True, logRequests=False)
+	server = SimpleXMLRPCServer((bind_host, args.port), requestHandler=RequestHandler, allow_none=True, logRequests=False)
 	server.register_introspection_functions()
 	server.register_instance(EAFSChunkserver(master_host, args.host, args.port, args.rootfs))
 	server.serve_forever()
