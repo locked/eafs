@@ -56,6 +56,8 @@ class EAFSClientLib():
 		#start_total = time.time()
 		for i in range(0, len(chunkuuids)): # write to each chunkserver
 			chunkuuid = chunkuuids[i]
+			write_data = zlib.compress(chunks[i])
+			write_data_xmlrpc = xmlrpclib.Binary(write_data)
 			chunkserver_uuids = self.master.choose_chunkserver_uuids()
 			chunkserver_writes = 0
 			for chunkserver_uuid in chunkserver_uuids:
@@ -65,8 +67,8 @@ class EAFSClientLib():
 					try:
 						#if True:
 						#start = time.time()
-						write_data = zlib.compress(chunks[i])
-						write_data_len = int(self.chunkservers[chunkserver_uuid].rpc.write(chunkuuid, xmlrpclib.Binary(write_data)))
+						write_data_len = int( self.chunkservers[chunkserver_uuid].rpc.write(chunkuuid, write_data_xmlrpc) )
+						print "Wrote on chunkserver %s: %d" % (chunkserver_uuid, write_data_len)
 						#if self.debug>1: print "[write_chunks] rpc.write: ", (time.time()-start)
 						if write_data_len==len(write_data):
 							chunkserver_writes += 1
@@ -79,6 +81,7 @@ class EAFSClientLib():
 			if chunkserver_writes==0:
 				raise Exception("write_chunks error, not enough chunkserver available")
 		#if self.debug>0: print "[write_chunks] total writes: ", (time.time()-start_total)
+		return True
 	
 	
 	def num_chunks(self, size):
@@ -93,19 +96,6 @@ class EAFSClientLib():
 		if len(self.chunk_cache[fh])>=self.chunk_size:
 			self.flush_low( path, fh )
 		return len(data)
-	
-	
-	def eafs_write_append(self, path, data, fh):
-		#if not self.exists(path):
-		#	raise Exception("append error, file does not exist: " + path)
-		#num_append_chunks = self.num_chunks(len(data))
-		#print "[eafs_write_append] DATA SIZE, NUM CHUNKS:", len(data), num_append_chunks
-		#start = time.time()
-		#append_chunkuuids = self.master.alloc_append(path, num_append_chunks)
-		#if self.debug>0: print "[eafs_write_append] master.alloc_append: ", (time.time()-start)
-		#self.write_chunks(append_chunkuuids, data)
-		#print "eafs_write: fh:%d path:%s data:%d chunk_cache:%d" % (fh, path, len(data), len(self.chunk_cache[fh]))
-		return self.accumulate( path, data, fh )
 	
 	
 	def flush_low(self, path, fh):
@@ -128,9 +118,10 @@ class EAFSClientLib():
 			else:
 				chunkuuids = self.master.alloc_append(path, num_append_chunks, data_md5)
 			#print "Flush Low: append_chunkuuids:%d" % (len(data))
-			self.master.file_set_attr(path, 'size', int(len(data)), 'add')
 			
-			self.write_chunks(chunkuuids, data)
+			if self.write_chunks(chunkuuids, data):
+				#print "Set size %s: %d" % (path, len(data))
+				self.master.file_set_attr(path, 'size', int(len(data)), 'add')
 			
 			if fh in self.chunk_cache:
 				self.chunk_cache[fh] = self.chunk_cache[fh][self.chunk_size:]
@@ -160,6 +151,19 @@ class EAFSClientLib():
 		self.accumulate( path, data, fh )
 		#self.write_chunks(chunkuuids, data)
 		return len(data)
+	
+	
+	def eafs_write_append(self, path, data, fh):
+		#if not self.exists(path):
+		#	raise Exception("append error, file does not exist: " + path)
+		#num_append_chunks = self.num_chunks(len(data))
+		#print "[eafs_write_append] DATA SIZE, NUM CHUNKS:", len(data), num_append_chunks
+		#start = time.time()
+		#append_chunkuuids = self.master.alloc_append(path, num_append_chunks)
+		#if self.debug>0: print "[eafs_write_append] master.alloc_append: ", (time.time()-start)
+		#self.write_chunks(append_chunkuuids, data)
+		#print "eafs_write: fh:%d path:%s data:%d chunk_cache:%d" % (fh, path, len(data), len(self.chunk_cache[fh]))
+		return self.accumulate( path, data, fh )
 	
 	
 	def eafs_read(self, path, size, offset):

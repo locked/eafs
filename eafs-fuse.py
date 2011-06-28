@@ -32,7 +32,7 @@ from eafsclientlib import EAFSClientLib
 class EAFSClientFuse(EAFSClientLib, Operations):
 #class EAFSClientFuse(EAFSClientLib, LoggingMixIn, Operations):
 	def rename(self, old, new):
-		self.master.rename(old, new)
+		return 0 if self.master.rename(old, new) else 0
 	
 	def write(self, path, data, offset, fh):
 		#print "FUSE Write path:%s fh:%d" % (path, fh)
@@ -62,7 +62,8 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 		s = ""
 		for i in range(0,length):
 			s += "0"
-		self.write(path, s, length, fh)
+		#self.accumulate(path, s, fh)
+		return length
 	
 	def mkdir(self, path, mode):
 		filename = path

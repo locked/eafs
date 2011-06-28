@@ -446,18 +446,19 @@ class EAFSMaster:
 	
 	
 	def rename(self, filename, new_filename):
-		#print "0 file: " + filename + " renamed to " + new_filename
+		if self.exists( new_filename ):
+			self.delete( new_filename )
 		inode = self.get_inode_from_filename( filename )
 		if inode:
-			attributes = self.inodetable[inode.id]
-			chunkuuids = attributes.chunks
+			old_inode = self.inodetable[inode.id]
+			chunkuuids = old_inode.chunks
 			del self.inodetable[inode.id]
 			metadata_cursor = self.metadata.get_cursor()
 			self.metadata.del_inode_chunk( inode.id, metadata_cursor )
 			self.metadata.del_inode( inode.id, metadata_cursor )
 			metadata_cursor.commit()
-			self.save_inodechunktable(new_filename,chunkuuids,attributes)
-			print "file: " + filename + " renamed to " + new_filename
+			self.save_inodechunktable(new_filename,chunkuuids,old_inode)
+			#print "file: " + filename + " renamed to " + new_filename
 			return True
 		return False
 	
@@ -529,11 +530,12 @@ class EAFSMaster:
 	
 	def file_set_attr(self, filename, attr, val, op):
 		inode = self.get_inode_from_filename( filename )
+		print "file_set_attr: ", filename, attr, val, op, inode
 		metadata_cursor = self.metadata.get_cursor()
 		if inode:
 			if attr=='size':
 				if op=='add':
-					#print "file_set_attr: add new size: ", val
+					print "file_set_attr: add new size: ", val
 					self.inodetable[inode.id].size+= val
 					self.metadata.set_inode_size( inode, metadata_cursor )
 		metadata_cursor.commit()
