@@ -95,7 +95,8 @@ class EAFSMaster:
 			self.metadata.init()
 		self.root_inode_id = 0
 		self.max_chunkservers = 100
-		self.chunksize = 2048000
+		#self.chunksize = 2048000
+		self.chunksize = 512000
 		self.replication_level = 2
 		self.inodetable = {}
 		self.inode_childrens = {}
@@ -420,7 +421,7 @@ class EAFSMaster:
 	def get_chunkuuids(self, filename):
 		inode = self.get_inode_from_filename( filename )
 		if inode:
-			print "CHUNKS:", self.inodetable[inode.id].chunks
+			#print "CHUNKS:", self.inodetable[inode.id].chunks
 			return self.inodetable[inode.id].chunks
 		return None
 	
@@ -531,12 +532,12 @@ class EAFSMaster:
 	
 	def file_set_attr(self, filename, attr, val, op):
 		inode = self.get_inode_from_filename( filename )
-		print "file_set_attr: ", filename, attr, val, op, inode
+		#print "file_set_attr: ", filename, attr, val, op, inode
 		metadata_cursor = self.metadata.get_cursor()
 		if inode:
 			if attr=='size':
 				if op=='add':
-					print "file_set_attr: add new size: ", val
+					#print "file_set_attr: add new size: ", val
 					self.inodetable[inode.id].size+= val
 					self.metadata.set_inode_size( inode, metadata_cursor )
 		metadata_cursor.commit()

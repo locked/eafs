@@ -179,7 +179,7 @@ class EAFSClientLib():
 		chunks = []
 		for chunkuuid in chunkuuids:
 			#if self.debug>3: 
-			print "eafs_read chunkuuid: ", chunkuuid
+			#print "eafs_read chunkuuid: ", chunkuuid
 			if chunkuuid in self.chunk_cache_read or chunkuuid in self.chunk_cache_read_wait:
 				if chunkuuid in self.chunk_cache_read_wait:
 					while self.chunk_cache_read_wait[chunkuuid]:
