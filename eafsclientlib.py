@@ -216,6 +216,7 @@ class EAFSClientLib():
 	
 	def get_chunk(self, chunkuuid, chunkserver_uuids):
 		chunklocs = chunkserver_uuids[chunkuuid]
+		#print "chunklocs: ", chunklocs
 		done_chunkserver = []
 		chunk = None
 		#chunk_read = False
@@ -241,7 +242,11 @@ class EAFSClientLib():
 				
 				#chunk_read = True
 			except:
-				print "Chunkserver %d failed %d remaining" % (chunkidrnd, len(chunklocs)-len(done_chunkserver))
+				print "Chunkserver %s:%d failed %d remaining" % (chunkloc, chunkidrnd, len(chunklocs)-len(done_chunkserver))
+				#try:
+				#	del self.chunkservers[chunkloc]
+				#except:
+				#	pass
 		return chunk
 	
 	

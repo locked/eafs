@@ -285,7 +285,14 @@ class EAFSMaster:
 	
 	
 	def get_chunklocs(self, chunkuuid):
-		return self.chunktable[chunkuuid]['chunkserver_uuids']
+		#return self.chunktable[chunkuuid]['chunkserver_uuids']
+		chunkserver_uuids = []
+		for chunkserver_uuid in self.chunktable[chunkuuid]['chunkserver_uuids']:
+			if chunkserver_uuid in self.chunkservers and self.chunkservers[chunkserver_uuid].available==1:
+				#print "server %s is available" % chunkserver_uuid
+				#print self.chunkservers
+				chunkserver_uuids.append( chunkserver_uuid )
+		return chunkserver_uuids
 	
 	
 	def chunkserver_has_chunk(self, chunkserver_uuid, chunk_uuid, chunk_md5):
