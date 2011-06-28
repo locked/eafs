@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
-import math,uuid,os,time,operator,sys,argparse,zlib,threading,statvfs,hashlib
+import math,uuid,os,time,operator,sys,argparse,zlib,threading,statvfs,hashlib,signal
 import xmlrpclib
 from SimpleXMLRPCServer import SimpleXMLRPCServer
 from SimpleXMLRPCServer import SimpleXMLRPCRequestHandler
@@ -110,6 +110,7 @@ class RequestHandler(SimpleXMLRPCRequestHandler):
 	rpc_paths = ('/RPC2',)
 
 
+
 def main():
 	parser = argparse.ArgumentParser(description='EAFS Chunk Server')
 	parser.add_argument('--host', dest='host', default='localhost', help='Bind to address')
@@ -124,11 +125,16 @@ def main():
 	bind_host = args.host
 	if args.bind<>'':
 		bind_host = args.bind
+	
 	# Create server
 	server = SimpleXMLRPCServer((bind_host, args.port), requestHandler=RequestHandler, allow_none=True, logRequests=False)
 	server.register_introspection_functions()
 	server.register_instance(EAFSChunkserver(master_host, args.host, args.port, args.rootfs))
-	server.serve_forever()
+	try:
+		server.serve_forever()
+	except KeyboardInterrupt:
+		print "Bye"
+		sys.exit()
 
 if __name__ == "__main__":
 	main()

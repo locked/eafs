@@ -1,5 +1,6 @@
 import time
 import xmlrpclib
+import socket
 
 class EAFSChunkServerRpc:
 	def __init__(self, uuid, address):
@@ -10,5 +11,4 @@ class EAFSChunkServerRpc:
 		self.available = 1
 		self.last_seen = time.time()
 		self.rpc = xmlrpclib.ServerProxy(address)
-
-
+		socket.setdefaulttimeout(5)

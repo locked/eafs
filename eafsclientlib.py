@@ -67,7 +67,9 @@ class EAFSClientLib():
 					try:
 						#if True:
 						#start = time.time()
+						#print "writing..."
 						write_data_len = int( self.chunkservers[chunkserver_uuid].rpc.write(chunkuuid, write_data_xmlrpc) )
+						#print "done"
 						#print "Wrote on chunkserver %s: %d" % (chunkserver_uuid, write_data_len)
 						#if self.debug>1: print "[write_chunks] rpc.write: ", (time.time()-start)
 						if write_data_len==len(write_data):
@@ -233,7 +235,9 @@ class EAFSClientLib():
 			#print "Select chunkloc %d::%s from %d choices" % (chunkidrnd, chunkloc, len(chunklocs))
 			try:
 				# Read from chunkserver
+				#print "reading...",
 				chunk_raw = self.chunkservers[chunkloc].rpc.read(chunkuuid)
+				#print "done"
 				chunk = zlib.decompress(chunk_raw.data)
 				#print "Read: ", chunkuuid, len(chunk)
 				
