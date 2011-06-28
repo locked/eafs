@@ -68,7 +68,7 @@ class EAFSClientLib():
 						#if True:
 						#start = time.time()
 						write_data_len = int( self.chunkservers[chunkserver_uuid].rpc.write(chunkuuid, write_data_xmlrpc) )
-						print "Wrote on chunkserver %s: %d" % (chunkserver_uuid, write_data_len)
+						#print "Wrote on chunkserver %s: %d" % (chunkserver_uuid, write_data_len)
 						#if self.debug>1: print "[write_chunks] rpc.write: ", (time.time()-start)
 						if write_data_len==len(write_data):
 							chunkserver_writes += 1
@@ -179,7 +179,7 @@ class EAFSClientLib():
 		chunks = []
 		for chunkuuid in chunkuuids:
 			#if self.debug>3: 
-			#print "eafs_read chunkuuid: ", chunkuuid
+			print "eafs_read chunkuuid: ", chunkuuid
 			if chunkuuid in self.chunk_cache_read or chunkuuid in self.chunk_cache_read_wait:
 				if chunkuuid in self.chunk_cache_read_wait:
 					while self.chunk_cache_read_wait[chunkuuid]:

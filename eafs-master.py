@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
-import math,uuid,os,time,operator,argparse,base64,sqlite3,threading,apsw
+import math,uuid,os,time,operator,argparse,base64,sqlite3,threading,apsw,ConfigParser
 
 from SimpleXMLRPCServer import SimpleXMLRPCServer
 from SimpleXMLRPCServer import SimpleXMLRPCRequestHandler
@@ -76,13 +76,13 @@ class EAFSInode:
 
 
 class EAFSMaster:
-	def __init__(self, rootfs, init):
+	def __init__(self, metadata_backend, rootfs, init):
 		self.debug = 0
 		# Create root fs
 		if not os.access(rootfs, os.W_OK):
 			os.makedirs(rootfs)
 		# Connect to DB
-		self.metadata_backend = 'mysql'
+		self.metadata_backend = metadata_backend
 		if self.metadata_backend=='sqlite':
 			self.db_path = os.path.join(rootfs,db_filename)
 			self.metadata = EAFSMetaDataSQLite( self.db_path )
@@ -420,6 +420,7 @@ class EAFSMaster:
 	def get_chunkuuids(self, filename):
 		inode = self.get_inode_from_filename( filename )
 		if inode:
+			print "CHUNKS:", self.inodetable[inode.id].chunks
 			return self.inodetable[inode.id].chunks
 		return None
 	
@@ -563,16 +564,37 @@ class RequestHandler(SimpleXMLRPCRequestHandler):
 
 def main():
 	parser = argparse.ArgumentParser(description='EAFS Master Server')
+	parser.add_argument('--config', dest='config', default='/etc/eafs/master.cfg', help='Config file')
 	parser.add_argument('--host', dest='host', default='localhost', help='Bind to address')
 	parser.add_argument('--port', dest='port', default=6799, type=int, help='Bind to port')
 	parser.add_argument('--rootfs', dest='rootfs', default='/tmp', help='Save data to')
+	parser.add_argument('--backend', dest='backend', default='sqlite', help='Type of metadata backend')
 	parser.add_argument('--init', dest='init', default=0, type=int, help='Init DB: reset ALL meta data')
 	args = parser.parse_args()
 	
+	config = ConfigParser.RawConfigParser()
+	config.read(args.config)
+	host = None
+	port = None
+	rootfs = None
+	backend = None
+	try:
+		host = config.get("Global", "host")
+		rootfs = config.get("Global", "rootfs")
+		backend = config.get("Global", "backend")
+		port = config.get("Global", "port")
+	except:
+		print "An error occured while reading config file"
+	
+	if host is None: host = args.host
+	if port is None: port = args.port
+	if rootfs is None: rootfs = args.rootfs
+	if backend is None: backend = args.backend
+	
 	# Create server
-	server = SimpleXMLRPCServer((args.host, args.port), requestHandler=RequestHandler, allow_none=True, logRequests=False)
+	server = SimpleXMLRPCServer((host, port), requestHandler=RequestHandler, allow_none=True, logRequests=False)
 	server.register_introspection_functions()
-	server.register_instance(EAFSMaster(args.rootfs, args.init))
+	server.register_instance(EAFSMaster(backend, rootfs, args.init))
 	server.serve_forever()
 
 

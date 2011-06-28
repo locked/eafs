@@ -91,7 +91,7 @@ class EAFSMetaDataSQLite(EAFSMetaData):
 	
 	def get_inode_chunks(self):
 		c = self.db.cursor()
-		c.execute('select * from inode_chunk order by chunk_uuid')
+		c.execute('select ic.* from inode_chunk ic left join chunk c on (c.uuid=ic.chunk_uuid) order by alloc_time')
 		rows = []
 		for row in c:
 			rows.append( row )
@@ -261,7 +261,7 @@ class EAFSMetaDataMySQL(EAFSMetaData):
 	
 	def get_inode_chunks(self):
 		c = self.get_read_cursor()
-		c.execute('select * from inode_chunk order by chunk_uuid')
+		c.execute('select ic.* from inode_chunk ic left join chunk c on (c.uuid=ic.chunk_uuid) order by alloc_time')
 		rows = c.fetchall()
 		return rows
 	
@@ -293,7 +293,7 @@ class EAFSMetaDataMySQL(EAFSMetaData):
 		cursor.cursor.execute("""insert into chunk values (%s,FROM_UNIXTIME(%s),%s)""", (chunk_uuid, chunk_timestamp, chunk_md5))
 	
 	def search_inode_with_parent(self, parent_inode_id, filename):
-		c = self.db.cursor()
+		c = self.get_read_cursor()
 		c.execute("""select * from inode where parent=%s and name=%s""", (parent_inode_id, filename) )
 		rows = c.fetchall()
 		return rows
