@@ -54,7 +54,6 @@ class EAFSChunkserver:
 			f = open(self.uuid_filename_full, 'w+')
 			f.write(self.uuid)
 			f.close()
-		#self.chunktable = {}
 		self.local_filesystem_root = os.path.join( rootfs, "chunks", str(self.uuid) ) #repr
 		#print "FS ROOT: %s" % self.local_filesystem_root
 		if not os.access(self.local_filesystem_root, os.W_OK):
@@ -62,16 +61,19 @@ class EAFSChunkserver:
 	
 	
 	def write(self, chunk_uuid, chunk):
+		#start = time.time()
 		local_filename = self.chunk_filename(chunk_uuid)
 		with open(local_filename, "w") as f:
 			f.write(chunk.data)
-			#f.write(zlib.decompress(chunk.data))
 		chunk_md5 = hashlib.md5(zlib.decompress(chunk.data)).hexdigest()
 		local_filename_md5 = self.chunk_md5_filename(chunk_uuid)
 		with open(local_filename_md5, "w") as f:
 			f.write(chunk_md5)
+		#print "[write] ", (time.time()-start)
+		#start = time.time()
 		#print "chunkserver_has_chunk: ", self.uuid, chunk_uuid, chunk_md5
 		self.master.chunkserver_has_chunk( self.uuid, chunk_uuid, chunk_md5 )
+		#print "[write] master.chunkserver_has_chunk", (time.time()-start)
 		return len(chunk.data)
 	
 	
@@ -81,7 +83,6 @@ class EAFSChunkserver:
 		with open(local_filename, "r") as f:
 			data = f.read()
 		return xmlrpclib.Binary(data)
-		#return xmlrpclib.Binary(zlib.compress(data))
 	
 	
 	def replicate(self, chunkuuid, chunkserver_uuid, chunkserver_address):

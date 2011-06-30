@@ -153,7 +153,7 @@ class EAFSMaster:
 				if alloc_time is not None:
 					time_diff = time.time()-alloc_time
 					#print "Chunk time_diff:%d" % (time_diff)
-					if time_diff>600:
+					if time_diff>120:
 						chunks_to_replicate.append(row[0])
 			#c.close()
 			#print "%d chunks to replicate" % len(chunks_to_replicate)
@@ -190,7 +190,7 @@ class EAFSMaster:
 				print "%d of %d chunks replicated, total %d left" % (num_replicated, num, len(chunks_to_replicate)-num_replicated)
 			
 			#print "Regular replicator thread end"
-			time.sleep( 30 )
+			time.sleep( 15 )
 	
 	
 	def get_chunksize(self):

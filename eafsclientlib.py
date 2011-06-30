@@ -52,11 +52,13 @@ class EAFSClientLib():
 		
 		#start = time.time()
 		self.update_chunkservers()
-		#if self.debug>0: print "[write_chunks] update_chunkservers: ", (time.time()-start)
-		#start_total = time.time()
+		#print "[write_chunks] update_chunkservers: ", (time.time()-start)
+		start_total = time.time()
 		for i in range(0, len(chunkuuids)): # write to each chunkserver
 			chunkuuid = chunkuuids[i]
+			#start = time.time()
 			write_data = zlib.compress(chunks[i])
+			#print "[write_chunks] compress: ", (time.time()-start)
 			write_data_xmlrpc = xmlrpclib.Binary(write_data)
 			chunkserver_uuids = self.master.choose_chunkserver_uuids()
 			chunkserver_writes = 0
@@ -65,13 +67,12 @@ class EAFSClientLib():
 					#print "chunkserver_uuid: ", chunkserver_uuid
 					#if self.debug>3: print "Chunk size: ", i, len(chunks[i])
 					try:
-						#if True:
 						#start = time.time()
 						#print "writing..."
 						write_data_len = int( self.chunkservers[chunkserver_uuid].rpc.write(chunkuuid, write_data_xmlrpc) )
 						#print "done"
 						#print "Wrote on chunkserver %s: %d" % (chunkserver_uuid, write_data_len)
-						#if self.debug>1: print "[write_chunks] rpc.write: ", (time.time()-start)
+						#print "[write_chunks] rpc.write: ", (time.time()-start)
 						if write_data_len==len(write_data):
 							chunkserver_writes += 1
 						else:
@@ -82,7 +83,7 @@ class EAFSClientLib():
 							del self.chunkservers[chunkserver_uuid]
 			if chunkserver_writes==0:
 				raise Exception("write_chunks error, not enough chunkserver available")
-		#if self.debug>0: print "[write_chunks] total writes: ", (time.time()-start_total)
+		#print "[write_chunks] total writes: ", (time.time()-start_total)
 		return True
 	
 	

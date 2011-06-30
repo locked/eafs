@@ -228,6 +228,7 @@ class EAFSMetaDataMySQL(EAFSMetaData):
 	def get_read_cursor(self):
 		try:
 			c = self.db.cursor()
+			c.execute("""show tables""")
 		except (AttributeError, MySQLdb.OperationalError):
 			self.connect()
 			c = self.db.cursor()
