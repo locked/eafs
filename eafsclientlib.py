@@ -93,21 +93,28 @@ class EAFSClientLib():
 	
 	
 	def accumulate(self, path, data, fh):
+		self.accumulate_append( path, data, 0, fh )
+		"""
+		chunk_offset = 0
 		if fh not in self.chunk_cache:
-			self.chunk_cache[fh] = ""
-		self.chunk_cache[fh] += data
-		if len(self.chunk_cache[fh])>=self.chunk_size:
+			self.chunk_cache[fh] = {}
+			self.chunk_cache[fh][chunk_offset] = ""
+		self.chunk_cache[fh][chunk_offset] += data
+		if len(self.chunk_cache[fh][chunk_offset])>=self.chunk_size:
 			self.flush_low( path, fh )
 		return len(data)
+		"""
 	
 	
-	def flush_low(self, path, fh):
+	def flush_low(self, path, fh, chunk_offset=0):
 		if fh not in self.chunk_cache:
 			return False
-		if len(self.chunk_cache[fh])>self.chunk_size:
-			data = self.chunk_cache[fh][0:self.chunk_size]
-		else:
-			data = self.chunk_cache[fh]
+		if chunk_offset not in self.chunk_cache[fh]:
+			return False
+		#if len(self.chunk_cache[fh][chunk_offset])>self.chunk_size:
+		#	data = self.chunk_cache[fh][0:self.chunk_size]
+		#else:
+		data = "".join( self.chunk_cache[fh][chunk_offset] )
 		#print "data:", data
 		#print "cache:", self.chunk_cache[path]
 		#print "Flush Low: fh:%d path:%s data:%d chunk_cache:%d chunk_size:%d" % (fh, path, len(data), len(self.chunk_cache[fh]), self.chunk_size)
@@ -126,10 +133,11 @@ class EAFSClientLib():
 				#print "Set size %s: %d" % (path, len(data))
 				self.master.file_set_attr(path, 'size', int(len(data)), 'add')
 			
-			if fh in self.chunk_cache:
-				self.chunk_cache[fh] = self.chunk_cache[fh][self.chunk_size:]
-			else:
-				return 0
+			del self.chunk_cache[fh][chunk_offset]
+			#if fh in self.chunk_cache:
+			#	self.chunk_cache[fh] = self.chunk_cache[fh][self.chunk_size:]
+			#else:
+			#	return 0
 		return True
 	
 	
@@ -146,17 +154,55 @@ class EAFSClientLib():
 	
 	
 	def eafs_write(self, path, data, fh): #, attributes
-		if self.exists(path):
-			self.master.delete(path)
+		#if self.exists(path):
+		#	self.master.delete(path)
 		#num_chunks = self.num_chunks(len(data))
 		#chunkuuids = self.master.alloc(path, num_chunks, attributes)
-		#print "eafs_write: fh:%d path:%s data:%d" % (fh, path, len(data))
+		print "eafs_write: fh:%d path:%s data:%d" % (fh, path, len(data))
 		self.accumulate( path, data, fh )
 		#self.write_chunks(chunkuuids, data)
 		return len(data)
 	
 	
-	def eafs_write_append(self, path, data, fh):
+	def accumulate_append(self, path, data, offset, fh):
+		size = len(data)
+		chunk_data_offset = offset;
+		if offset>0:
+			print "[accumulate_append] Get offset: path:%s size:%d offset:%d" % (path, size, offset)
+			(chunkuuids, chunk_data_offset, chunkserver_uuids, chunkmd5s, next_chunkuuid) = self.master.get_chunkuuids_offset(path,size,offset)
+		chunk_offset = offset % self.chunk_size
+		print "[accumulate_append] chunk_offset:%d" % (chunk_offset)
+		if fh not in self.chunk_cache:
+			self.chunk_cache[fh] = {}
+		if chunk_offset not in self.chunk_cache[fh]:
+			current_data = [] #"" for i in range(0,self.chunk_size)]
+			self.chunk_cache[fh][chunk_offset] = current_data
+			if self.exists( path ):
+				read_data = self.eafs_read( path, size, offset )
+				if read_data is not None:
+					current_data = [i for i in read_data]
+			for d in current_data:
+				self.chunk_cache[fh][chunk_offset].append( d )
+			print "[accumulate_append] Load chunk data: path:%s size:%d offset:%d currentdata:%d alldata:%d" % (path, size, offset, len(current_data), len(self.chunk_cache[fh][chunk_offset]))
+		print "[accumulate_append] chunk_offset: %d" % chunk_data_offset
+		offset_local = chunk_data_offset;
+		for d in data:
+			#print "[accumulate_append] set data: %d / %d / %d" % (fh, chunk_offset, offset_local)
+			if len(self.chunk_cache[fh][chunk_offset])>offset_local:
+				self.chunk_cache[fh][chunk_offset][offset_local] = d
+			else:
+				self.chunk_cache[fh][chunk_offset].append( d )
+			if len(self.chunk_cache[fh][chunk_offset])>=self.chunk_size:
+				print "[accumulate_append] flush: %d / %d / %d" % (chunk_offset, len(self.chunk_cache[fh][chunk_offset]), self.chunk_size)
+				self.flush_low( path, fh, chunk_offset )
+				break;
+				#return len(data)+self.accumulate_append(path, data, offset+1, fh))
+			else:
+				offset_local += 1
+		return len(data)
+	
+	
+	def eafs_write_append(self, path, data, offset, fh):
 		#if not self.exists(path):
 		#	raise Exception("append error, file does not exist: " + path)
 		#num_append_chunks = self.num_chunks(len(data))
@@ -165,8 +211,8 @@ class EAFSClientLib():
 		#append_chunkuuids = self.master.alloc_append(path, num_append_chunks)
 		#if self.debug>0: print "[eafs_write_append] master.alloc_append: ", (time.time()-start)
 		#self.write_chunks(append_chunkuuids, data)
-		#print "eafs_write: fh:%d path:%s data:%d chunk_cache:%d" % (fh, path, len(data), len(self.chunk_cache[fh]))
-		return self.accumulate( path, data, fh )
+		print "[eafs_write_append] fh:%d path:%s data:%d offset:%d chunk_cache:%d" % (fh, path, len(data), offset, len(self.chunk_cache[fh]))
+		return self.accumulate_append( path, data, offset, fh )
 	
 	
 	def eafs_read(self, path, size, offset):

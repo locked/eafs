@@ -37,7 +37,7 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 	def write(self, path, data, offset, fh):
 		#print "FUSE Write path:%s fh:%d" % (path, fh)
 		if offset>0:
-			return self.eafs_write_append(path, data, fh)
+			return self.eafs_write_append(path, data, offset, fh)
 		return self.eafs_write(path, data, fh)
 	
 	def fsync(self, path, datasync, fh):
@@ -59,6 +59,8 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 		return self.fd
 	
 	def truncate(self, path, length, fh=None):
+		print "truncate %s" % path
+		return 0
 		s = ""
 		for i in range(0,length):
 			s += "0"
@@ -93,11 +95,13 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 		return self.eafs_read( path, size, offset )
 	
 	def statfs(self, path):
+		print "statfs %s" % path
 		return self.master.statfs( path )
 		##return dict(f_bsize=512, f_blocks=32768000, f_bavail=16384000)
 		#return dict(f_bsize=512, f_blocks=4096, f_bavail=2048)
 	
 	def open(self, path, flags):
+		print "open %s" % path
 		self.fd += 1
 		return self.fd
 	
@@ -150,6 +154,7 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 		return ''
 	
 	def chmod(self, path, mode):
+		print "chmod %s" % path
 		"""
 		self.files[path]['st_mode'] &= 0770000
 		self.files[path]['st_mode'] |= mode
@@ -157,6 +162,7 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 		return 0
 	
 	def chown(self, path, uid, gid):
+		print "chown %s" % path
 		pass
 		"""
 		self.files[path]['st_uid'] = uid
