@@ -65,7 +65,8 @@ class EAFSChunkserver:
 		local_filename = self.chunk_filename(chunk_uuid)
 		with open(local_filename, "w") as f:
 			f.write(chunk.data)
-		chunk_md5 = hashlib.md5(zlib.decompress(chunk.data)).hexdigest()
+		chunk_data = chunk.data # zlib.decompress(chunk.data)
+		chunk_md5 = hashlib.md5(chunk_data).hexdigest()
 		local_filename_md5 = self.chunk_md5_filename(chunk_uuid)
 		with open(local_filename_md5, "w") as f:
 			f.write(chunk_md5)
@@ -78,6 +79,7 @@ class EAFSChunkserver:
 	
 	
 	def read(self, chunkuuid):
+		print "Read %s" % chunkuuid
 		data = None
 		local_filename = self.chunk_filename(chunkuuid)
 		with open(local_filename, "r") as f:

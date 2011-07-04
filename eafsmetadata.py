@@ -73,7 +73,7 @@ class EAFSMetaDataSQLite(EAFSMetaData):
 			pass
 		c.execute("begin")
 		c.execute('CREATE TABLE inode (id INTEGER PRIMARY KEY AUTOINCREMENT, parent INTEGER, name text, type char(1), perms text, uid int, gid int, attrs text, ctime text, mtime text, atime text, links int, size int, UNIQUE(parent, name))')
-		c.execute('CREATE TABLE chunk (uuid text, alloc_time TIMESTAMP, md5 TEXT, PRIMARY KEY(uuid))')
+		c.execute('CREATE TABLE chunk (uuid text, alloc_time INTEGER, md5 TEXT, size INTEGER, PRIMARY KEY(uuid))')
 		c.execute('CREATE TABLE inode_chunk (inode_id INTEGER, chunk_uuid text, UNIQUE(inode_id,chunk_uuid))')
 		c.execute('CREATE TABLE server (uuid text, address text, available INTEGER, last_seen DATETIME, size_total INTEGER, size_available INTEGER, PRIMARY KEY(uuid))')
 		c.execute('CREATE TABLE chunk_server (chunk_uuid text, server_uuid text, UNIQUE(chunk_uuid,server_uuid))')
@@ -130,6 +130,11 @@ class EAFSMetaDataSQLite(EAFSMetaData):
 			cursor = self.get_cursor()
 		cursor.cursor.execute("""insert into chunk values (?,?,?)""", (chunk_uuid, chunk_timestamp, chunk_md5))
 	
+	def set_chunk(self, chunk_uuid, attr, val, cursor=None):
+		if cursor is None:
+			cursor = self.get_cursor()
+		cursor.cursor.execute("""update chunk set """+attr+"""=? where uuid=?)""", (val, chunk_uuid))
+	
 	def search_inode_with_parent(self, parent_inode_id, filename):
 		c = self.db.cursor()
 		c.execute("""select * from inode where parent=? and name=?""", (parent_inode_id, filename) )
@@ -177,12 +182,12 @@ class EAFSMetaDataSQLite(EAFSMetaData):
 		if self_commit:
 			cursor.commit()
 
-	def set_inode_size( self, inode, cursor=None ):
+	def set_inode_size( self, inode_id, inode_size, cursor=None ):
 		self_commit = False
 		if cursor is None:
 			cursor = self.get_cursor()
 			self_commit = True
-		cursor.cursor.execute("""update inode set size=? where id=?""", (inode.size, inode.id))
+		cursor.cursor.execute("""update inode set size=? where id=?""", (inode_size, inode_id))
 		if self_commit:
 			cursor.commit()
 	
@@ -248,7 +253,7 @@ class EAFSMetaDataMySQL(EAFSMetaData):
 			pass
 		cursor = self.get_cursor()
 		cursor.cursor.execute('CREATE TABLE inode (id INTEGER PRIMARY KEY AUTO_INCREMENT, parent INTEGER, name VARCHAR(900), type char(1), perms VARCHAR(16), uid int, gid int, attrs VARCHAR(64), ctime VARCHAR(64), mtime VARCHAR(64), atime VARCHAR(68), links int, size int, UNIQUE(parent, name))')
-		cursor.cursor.execute('CREATE TABLE chunk (uuid VARCHAR(128), alloc_time TIMESTAMP, md5 VARCHAR(128), PRIMARY KEY(uuid))')
+		cursor.cursor.execute('CREATE TABLE chunk (uuid VARCHAR(128), alloc_time BIGINT, md5 VARCHAR(128), size INTEGER, PRIMARY KEY(uuid))')
 		cursor.cursor.execute('CREATE TABLE inode_chunk (inode_id INTEGER, chunk_uuid VARCHAR(128), UNIQUE(inode_id,chunk_uuid))')
 		cursor.cursor.execute('CREATE TABLE server (uuid VARCHAR(128), address VARCHAR(2048), available INTEGER, last_seen TIMESTAMP, size_total INTEGER, size_available INTEGER, PRIMARY KEY(uuid))')
 		cursor.cursor.execute('CREATE TABLE chunk_server (chunk_uuid VARCHAR(128), server_uuid VARCHAR(128), UNIQUE(chunk_uuid,server_uuid))')
@@ -291,13 +296,33 @@ class EAFSMetaDataMySQL(EAFSMetaData):
 	def add_chunk(self, chunk_uuid, chunk_timestamp, chunk_md5, cursor=None):
 		if cursor is None:
 			cursor = self.get_cursor()
-		cursor.cursor.execute("""insert into chunk values (%s,FROM_UNIXTIME(%s),%s)""", (chunk_uuid, chunk_timestamp, chunk_md5))
+		cursor.cursor.execute("insert into chunk values ('%s',%d,'%s',0)" % (chunk_uuid, int(chunk_timestamp), chunk_md5))
+	
+	def set_chunk(self, chunk_uuid, attr, val, cursor=None):
+		if cursor is None:
+			cursor = self.get_cursor()
+		cursor.cursor.execute("""update chunk set """+attr+"""=%s where uuid=%s""", (val, chunk_uuid))
 	
 	def search_inode_with_parent(self, parent_inode_id, filename):
 		c = self.get_read_cursor()
 		c.execute("""select * from inode where parent=%s and name=%s""", (parent_inode_id, filename) )
 		rows = c.fetchall()
 		return rows
+	
+	def get_inode( self, inode_id ):
+		c = self.get_read_cursor()
+		c.execute("""select * from inode where id=%d""", (inode_id) )
+		row = c.fetchone()
+		return row
+	
+	def get_inode_size_from_chunk( self, chunk_uuid ):
+		c = self.get_read_cursor()
+		c.execute("""select i.id from inode i left join inode_chunk ic on (ic.inode_id=i.id) where ic.chunk_uuid=%s""", (chunk_uuid, ) )
+		row = c.fetchone()
+		inode_id = int(row[0])
+		c.execute("""select CASE WHEN SUM(c.size) IS NULL THEN 0 ELSE SUM(c.size) END AS size from inode i left join inode_chunk ic on (ic.inode_id=i.id) left join chunk c on (c.uuid=ic.chunk_uuid) where i.id=%s GROUP BY i.id""", (str(inode_id), ) )
+		row = c.fetchone()
+		return (inode_id, int(row[0]))
 	
 	def del_chunk( self, chunkuuid, cursor=None ):
 		if cursor is None:
@@ -328,22 +353,22 @@ class EAFSMetaDataMySQL(EAFSMetaData):
 		#print "Create: ", "insert into inode (parent,name,type,perms,uid,gid,attrs,ctime,mtime,atime,links) values (%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)" % (parent_inode_id, create_filename, attributes["type"], "wrxwrxwrx", 0, 0, attributes["attrs"], attributes["ctime"], attributes["mtime"], attributes["atime"], 0)
 		if self_commit:
 			cursor.commit()
-
+	
 	def add_inode_chunk( self, inode_id, chunkuuid, cursor=None ):
 		self_commit = False
 		if cursor is None:
 			cursor = self.get_cursor()
 			self_commit = True
-		cursor.cursor.execute("""insert into inode_chunk values (%s,%s)""", (inode_id, chunkuuid))
+		cursor.cursor.execute("insert into inode_chunk values (%d,'%s')" % (int(inode_id), chunkuuid))
 		if self_commit:
 			cursor.commit()
-
-	def set_inode_size( self, inode, cursor=None ):
+	
+	def set_inode_size( self, inode_id, inode_size, cursor=None ):
 		self_commit = False
 		if cursor is None:
 			cursor = self.get_cursor()
 			self_commit = True
-		cursor.cursor.execute("""update inode set size=%s where id=%s""", (inode.size, inode.id))
+		cursor.cursor.execute("update inode set size=%d where id=%d" % (int(inode_size), int(inode_id)))
 		if self_commit:
 			cursor.commit()
 	
@@ -353,6 +378,6 @@ class EAFSMetaDataMySQL(EAFSMetaData):
 	
 	def get_missing_replicate_chunks_and_servers( self ):
 		c = self.get_read_cursor()
-		c.execute('select chunk_uuid, UNIX_TIMESTAMP(alloc_time), count(*) as c from chunk_server left join chunk on (chunk.uuid=chunk_server.chunk_uuid) left join server on (server.uuid=chunk_server.server_uuid) where available=1 group by chunk_uuid, alloc_time having c<=1')
+		c.execute('select chunk_uuid, alloc_time, count(*) as c from chunk_server left join chunk on (chunk.uuid=chunk_server.chunk_uuid) left join server on (server.uuid=chunk_server.server_uuid) where available=1 group by chunk_uuid, alloc_time having c<=1')
 		rows = c.fetchall()
 		return rows

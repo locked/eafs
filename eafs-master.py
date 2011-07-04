@@ -28,6 +28,8 @@ from eafsmetadata import *
 db_filename = "eafs.db"
 
 
+def get_microtime():
+	return int(time.time()*100)
 
 
 class EAFSInode:
@@ -96,7 +98,7 @@ class EAFSMaster:
 		self.root_inode_id = 0
 		self.max_chunkservers = 100
 		#self.chunksize = 2048000
-		self.chunksize = 512000
+		self.chunksize = 128000
 		self.replication_level = 2
 		self.inodetable = {}
 		self.inode_childrens = {}
@@ -211,6 +213,7 @@ class EAFSMaster:
 			num_inodetable += 1
 		if num_inodetable==0:
 			# Create root directory
+			#print "[load_inodes] Create root directory"
 			root_inode = self.create_inode( "/" )
 		else:
 			root_inode = self.get_inode_from_filename( "/" )
@@ -300,16 +303,46 @@ class EAFSMaster:
 			return False
 		if 'md5' not in self.chunktable[chunk_uuid]:
 			return False
-		if chunk_md5<>self.chunktable[chunk_uuid]['md5']:
+		if self.chunktable[chunk_uuid]['md5'] is not None and chunk_md5<>self.chunktable[chunk_uuid]['md5']:
 			print "MD5 mismatch: ", chunk_md5, self.chunktable[chunk_uuid]['md5']
 			return False
 		return self.alloc_chunks_to_chunkservers( chunk_uuid, [chunkserver_uuid] )
 	
 	
-	def alloc(self, filename, num_chunks, attributes, chunk_md5):
+	def set_chunk_attrs(self, chunk_uuid, chunk_attrs):
+		#print "[set_chunk_attrs] Set chunk_uuid %s" % (chunk_uuid)
+		chunk_md5 = chunk_attrs['md5']
+		chunk_size = chunk_attrs['size']
+		self.chunktable[chunk_uuid]['md5'] = chunk_md5
+		metadata_cursor = self.metadata.get_cursor()
+		self.metadata.set_chunk( chunk_uuid, 'md5', chunk_md5, metadata_cursor )
+		self.metadata.set_chunk( chunk_uuid, 'size', chunk_size, metadata_cursor )
+		
+		#print "[set_chunk_attrs] get_inode_size_from_chunk %s" % (chunk_uuid)
+		(inode_id, size) = self.metadata.get_inode_size_from_chunk( chunk_uuid )
+		#print "[set_chunk_attrs] Set inode %d size %d" % (inode_id, size)
+		self.inodetable[inode_id].size = int(size)
+		self.metadata.set_inode_size( inode_id, size, metadata_cursor )
+		
+		metadata_cursor.commit()
+	
+	
+	"""
+	def alloc_append(self, filename, num_append_chunks, chunk_md5):
+		#chunkuuids = self.get_chunkuuids(filename)
+		append_chunkuuids = self.alloc_chunks(num_append_chunks, chunk_md5)
+		self.save_inodechunktable(filename, append_chunkuuids)
+		return append_chunkuuids
+	"""
+	
+	
+	def alloc(self, filename, num_chunks, attributes=0, chunk_md5=None):
 		chunkuuids = self.alloc_chunks(num_chunks, chunk_md5)
-		inode = EAFSInode(attributes)
-		inode.name = os.path.basename( filename )
+		inode = None
+		if attributes<>0:
+			print "[alloc] attributes: ", attributes
+			inode = EAFSInode(attributes)
+			inode.name = os.path.basename( filename )
 		self.save_inodechunktable(filename, chunkuuids, inode)
 		return chunkuuids
 	
@@ -341,7 +374,7 @@ class EAFSMaster:
 				self.chunktable[chunk_uuid] = {}
 				self.chunktable[chunk_uuid]['chunkserver_uuids'] = []
 			self.chunktable[chunk_uuid]['md5'] = chunk_md5
-			self.metadata.add_chunk( chunk_uuid, time.time(), chunk_md5, metadata_cursor )
+			self.metadata.add_chunk( chunk_uuid, get_microtime(), chunk_md5, metadata_cursor )
 			chunkserver_uuids = self.choose_chunkserver_uuids()
 			# Insert chunk/chunkserver relation
 			# No: this is the chunkserver job
@@ -350,13 +383,6 @@ class EAFSMaster:
 		if self.debug>0: print "[alloc_chunks] sql commit: ", (time.time()-start_sql)
 		if self.debug>0: print "[alloc_chunks] total: ", len(chunkuuids), (time.time()-start)
 		return chunkuuids
-	
-	
-	def alloc_append(self, filename, num_append_chunks, chunk_md5):
-		chunkuuids = self.get_chunkuuids(filename)
-		append_chunkuuids = self.alloc_chunks(num_append_chunks, chunk_md5)
-		self.save_inodechunktable(filename, append_chunkuuids)
-		return append_chunkuuids
 	
 	
 	def get_parent_inode_from_filename( self, filename ):
@@ -374,21 +400,26 @@ class EAFSMaster:
 		curpath = ""
 		for fn in fs:
 			#print "  Lookup inode: ", parent_inode_id, fn
-			rows = self.metadata.search_inode_with_parent( parent_inode_id, fn )
-			inode_raw = None
-			for row in rows:
-				inode_raw = row
-			if inode_raw is not None:
+			#rows = self.metadata.search_inode_with_parent( parent_inode_id, fn )
+			inode = None
+			for inode_id in self.inodetable:
+				if self.inodetable[inode_id].parent==parent_inode_id and self.inodetable[inode_id].name==fn:
+					inode = self.inodetable[inode_id]
+					break
+			#inode_raw = None
+			#for row in rows:
+			#	inode_raw = row
+			if inode is not None:
 				curpath = curpath + "/" + fn
-				inode_id = inode_raw[0]
+				#inode_id = inode_raw[0]
 				parent_inode_id = inode_id
-				#print "  Found inode: %d (%s : %s)" % (inode_id, curpath, filename)
+				#print "  Found inode: %d (%s : %s)" % (inode.id, curpath, filename)
 				if curpath==filename:
-					if inode_id in self.inodetable:
-						inode = self.inodetable[inode_id]
-					else:
-						inode = EAFSInode()
-						inode.update_from_db(inode_raw)
+					#if inode_id in self.inodetable:
+					#	inode = self.inodetable[inode.id]
+					#else:
+					#	inode = EAFSInode()
+					#	inode.update_from_db(inode_raw)
 					return inode
 			else:
 				#print "  Not found"
@@ -487,8 +518,15 @@ class EAFSMaster:
 		metadata_cursor = self.metadata.get_cursor()
 		self.metadata.add_inode( parent_inode_id, create_filename, inode, metadata_cursor )
 		metadata_cursor.commit()
-		inode = self.get_inode_from_filename( filename )
-		if inode:
+		#inode_raw = self.metadata.get_inode( inode.id )
+		#inode = self.get_inode_from_filename( filename )
+		rows = self.metadata.search_inode_with_parent( parent_inode_id, create_filename )
+		inode_raw = None
+		for row in rows:
+			inode_raw = row
+		if inode_raw:
+			inode = EAFSInode()
+			inode.update_from_db(inode_raw)
 			self.inodetable[inode.id] = inode
 			if parent_inode_id not in self.inode_childrens:
 				self.inode_childrens[parent_inode_id] = []
@@ -506,10 +544,10 @@ class EAFSMaster:
 			if not inode:
 				return False
 		self.inodetable[inode.id].chunks.extend( chunkuuids )
-		#print "Save %d chunks for node %d" % (len(self.inodetable[inode.id].chunks), inode.id)
+		print "Save %d chunks for node %d" % (len(self.inodetable[inode.id].chunks), inode.id)
 		metadata_cursor = self.metadata.get_cursor()
 		for chunkuuid in chunkuuids:
-			if self.debug>3: print "insert into inode_chunk values (%s, %s)" % (inode.id, chunkuuid)
+			#if self.debug>3: print "insert into inode_chunk values (%s, %s)" % (inode.id, chunkuuid)
 			self.metadata.add_inode_chunk( inode.id, chunkuuid, metadata_cursor )
 		metadata_cursor.commit()
 	
@@ -537,6 +575,7 @@ class EAFSMaster:
 		return None
 	
 	
+	"""
 	def file_set_attr(self, filename, attr, val, op):
 		inode = self.get_inode_from_filename( filename )
 		#print "file_set_attr: ", filename, attr, val, op, inode
@@ -546,8 +585,9 @@ class EAFSMaster:
 				if op=='add':
 					#print "file_set_attr: add new size: ", val
 					self.inodetable[inode.id].size+= val
-					self.metadata.set_inode_size( inode, metadata_cursor )
+					self.metadata.set_inode_size( inode.id, metadata_cursor )
 		metadata_cursor.commit()
+	"""
 	
 	
 	def statfs(self, path):

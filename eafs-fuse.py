@@ -53,13 +53,14 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 		return 1
 	
 	def create(self, path, mode):
-		attributes = {"type":"f", "atime":time.time(), "ctime":time.time(), "mtime":time.time(), "size":0, "links":1, "attrs":""}
+		print "FUSE Create path:%s" % (path)
+		attributes = {"type":"f", "atime":int(time.time()), "ctime":int(time.time()), "mtime":int(time.time()), "size":0, "links":1, "attrs":""}
 		chunkuuids = self.master.alloc(path, 0, attributes, '')
 		self.fd += 1
 		return self.fd
 	
 	def truncate(self, path, length, fh=None):
-		print "truncate %s" % path
+		print "FUSE truncate %s" % path
 		return 0
 		s = ""
 		for i in range(0,length):
@@ -69,13 +70,14 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 	
 	def mkdir(self, path, mode):
 		filename = path
-		attributes = {"type":"d", "atime":time.time(), "ctime":time.time(), "mtime":time.time(), "attrs":""}
+		attributes = {"type":"d", "atime":int(time.time()), "ctime":int(time.time()), "mtime":int(time.time()), "attrs":""}
 		chunkuuids = self.master.alloc(filename, 0, attributes, '')
 	
 	def rmdir(self, path):
 		self.master.delete(path)
 	
 	def unlink(self, path):
+		print "FUSE unlink path:%s" % (path)
 		self.master.delete(path)
 	
 	def readdir(self, path, fh):
@@ -95,17 +97,18 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 		return self.eafs_read( path, size, offset )
 	
 	def statfs(self, path):
-		print "statfs %s" % path
+		print "FUSE statfs %s" % path
 		return self.master.statfs( path )
 		##return dict(f_bsize=512, f_blocks=32768000, f_bavail=16384000)
 		#return dict(f_bsize=512, f_blocks=4096, f_bavail=2048)
 	
 	def open(self, path, flags):
-		print "open %s" % path
+		print "FUSE open %s" % path
 		self.fd += 1
 		return self.fd
 	
 	def getattr(self, path, fh=None):
+		print "FUSE getattr path:%s" % (path)
 		f = self.master.file_attr(path)
 		if f is None:
 			raise FuseOSError(ENOENT)
@@ -120,6 +123,7 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 	
 	def utimens(self, path, times=None):
 		now = time.time()
+		print "FUSE utimens path:%s" % (path)
 		"""
 		atime, mtime = times if times else (now, now)
 		self.files[path]['st_atime'] = atime
@@ -127,7 +131,7 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 		"""
 	
 	def symlink(self, target, source):
-		pass
+		print "FUSE symlink path:%s" % (path)
 		"""
 		self.files[target] = dict(st_mode=(S_IFLNK | 0777), st_nlink=1,
 			st_size=len(source))
@@ -145,6 +149,7 @@ class EAFSClientFuse(EAFSClientLib, Operations):
 		pass
 	
 	def readlink(self, path):
+		print "FUSE readlink path:%s" % (path)
 		return self.data[path]
 	
 	def listxattr(self, path):
